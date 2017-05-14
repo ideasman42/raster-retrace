@@ -1,0 +1,6 @@
+[package]
+name = "raster-retrace"
+version = "0.1.0"
+authors = ["Campbell Barton <ideasman42@gmail.com>"]
+
+[dependencies]
