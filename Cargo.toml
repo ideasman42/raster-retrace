@@ -2,5 +2,11 @@
 name = "raster-retrace"
 version = "0.1.0"
 authors = ["Campbell Barton <ideasman42@gmail.com>"]
+description = "Image tracing utility, (performed using bezier curve fitting)."
+readme = "readme.rst"
+homepage = "https://github.com/ideasman42/raster-retrace"
+repository = "https://github.com/ideasman42/raster-retrace"
+license = "Apache-2.0"
+categories = ["command-line-utilities", "multimedia"]
 
 [dependencies]
