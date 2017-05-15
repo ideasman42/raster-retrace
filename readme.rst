@@ -5,6 +5,15 @@ Raster Retrace
 
 Image tracing utility.
 
+
+.. note::
+
+   This is an initial release,
+   currently this tool works but only loads ``PPM`` images and writes out ``SVG``.
+
+   Support for other image formats is planned.
+
+
 Usage
 =====
 
