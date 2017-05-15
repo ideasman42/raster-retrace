@@ -6,6 +6,13 @@ Raster Retrace
 Image tracing utility.
 
 
+Feature Set
+===========
+
+- Black and white image tracing.
+- Corner detection (with angle threshold).
+- SVG vector output.
+
 .. note::
 
    This is an initial release,
