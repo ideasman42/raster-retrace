@@ -9,6 +9,8 @@ Image tracing utility.
 Feature Set
 ===========
 
+- Curve (re)fitting, using an iterative simplification algorithm: see
+  `curve-fit-nd <https://github.com/ideasman42/curve-fit-nd>`__ library.
 - Black and white image tracing.
 - Corner detection (with angle threshold).
 - SVG vector output.
