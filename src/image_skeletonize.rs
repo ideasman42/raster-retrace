@@ -21,8 +21,9 @@ pub fn calculate(
     );
 }
 
-fn compute_thin_image(image: &mut Bitmap)
-{
+fn compute_thin_image(
+    image: &mut Bitmap,
+) {
     let mut simple_border_points: Vec<[i32; 2]> = Vec::new();
 
     // Loop through the image several times until there is no change.
@@ -101,8 +102,7 @@ fn compute_thin_image(image: &mut Bitmap)
 
 /// Check if a point in the given stack is at the end of an arc.
 /// return true if the point has exactly one neighbor
-fn pixel_is_endpoint(image: &Bitmap, x: i32, y: i32) -> bool
-{
+fn pixel_is_endpoint(image: &Bitmap, x: i32, y: i32) -> bool {
     let mut number_of_neighbors: u32 = 0;
     let neighbors = neighborhood_get_no_center(image, x, y);
     for i in 0..DIR_FLAG_NUM_NO_CENTER {
@@ -135,8 +135,7 @@ const DIR_NE: u32 = 1 << 7;
 ///
 /// return corresponding DIR_FLAG_NUM-pixels neighborhood (0 if out of image)
 /*
-fn neighborhood_get(image: &Bitmap, x: i32, y: i32) -> u32
-{
+fn neighborhood_get(image: &Bitmap, x: i32, y: i32) -> u32 {
     return (
         if pixel_get(image, x - 1, y - 1)     { DIR_SW      } else { 0 } |
         if pixel_get(image, x,     y - 1)     { DIR_S       } else { 0 } |
@@ -154,8 +153,7 @@ fn neighborhood_get(image: &Bitmap, x: i32, y: i32) -> u32
 }
 */
 
-fn neighborhood_get_no_center(image: &Bitmap, x: i32, y: i32) -> u32
-{
+fn neighborhood_get_no_center(image: &Bitmap, x: i32, y: i32) -> u32 {
     return
         if pixel_get(image, x - 1, y - 1)     { DIR_SW      } else { 0 } |
         if pixel_get(image, x,     y - 1)     { DIR_S       } else { 0 } |
@@ -171,8 +169,7 @@ fn neighborhood_get_no_center(image: &Bitmap, x: i32, y: i32) -> u32
 }
 
 /// Get pixel in 2D image (0 border conditions)
-fn pixel_get(image: &Bitmap, x: i32, y: i32) -> bool
-{
+fn pixel_get(image: &Bitmap, x: i32, y: i32) -> bool {
     if x >= 0 && x < image.size[0] &&
        y >= 0 && y < image.size[1]
     {
@@ -183,14 +180,12 @@ fn pixel_get(image: &Bitmap, x: i32, y: i32) -> bool
 }
 
 /// Get pixel in 2D image (no border checking)
-fn pixel_get_no_check(image: &Bitmap, x: i32, y: i32) -> bool
-{
+fn pixel_get_no_check(image: &Bitmap, x: i32, y: i32) -> bool {
     return image.data[(x + y * image.size[0]) as usize];
 }
 
 /// Set pixel in 2D image
-fn pixel_set(image: &mut Bitmap, x: i32, y: i32, value: bool)
-{
+fn pixel_set(image: &mut Bitmap, x: i32, y: i32, value: bool) {
     if x >= 0 && x < image.size[0] &&
        y >= 0 && y < image.size[1]
     {
@@ -206,8 +201,7 @@ const INDEX_LUT: [i32; 32] = [
 /// Check if a point is Euler invariant
 ///
 /// return true or false if the point is Euler invariant or not
-fn is_euler_invariant(neighbors: u32) -> bool
-{
+fn is_euler_invariant(neighbors: u32) -> bool {
     // Calculate Euler characteristic for each quadrant and sum up
     let mut euler_char: i32 = 0;
 
@@ -219,8 +213,7 @@ fn is_euler_invariant(neighbors: u32) -> bool
     return euler_char == 0;
 }
 
-fn index_quadrant_ne(neighbors: u32) -> u8
-{
+fn index_quadrant_ne(neighbors: u32) -> u8 {
     return
         if neighbors & DIR_S != 0 { (1 << 4) } else { 0 } |
         if neighbors & DIR_E != 0 { (1 << 1) } else { 0 } |
@@ -228,8 +221,7 @@ fn index_quadrant_ne(neighbors: u32) -> u8
     ;
 }
 
-fn index_quadrant_nw(neighbors: u32) -> u8
-{
+fn index_quadrant_nw(neighbors: u32) -> u8 {
     return
         if neighbors & DIR_W != 0 { (1 << 4) } else { 0 } |
         if neighbors & DIR_S != 0 { (1 << 2) } else { 0 } |
@@ -237,8 +229,7 @@ fn index_quadrant_nw(neighbors: u32) -> u8
     ;
 }
 
-fn index_quadrant_se(neighbors: u32) -> u8
-{
+fn index_quadrant_se(neighbors: u32) -> u8 {
     return
         if neighbors & DIR_N != 0 { (1 << 4) } else { 0 } |
         if neighbors & DIR_E != 0 { (1 << 1) } else { 0 } |
@@ -246,8 +237,7 @@ fn index_quadrant_se(neighbors: u32) -> u8
     ;
 }
 
-fn index_quadrant_sw(neighbors: u32) -> u8
-{
+fn index_quadrant_sw(neighbors: u32) -> u8 {
     return
         if neighbors & DIR_N != 0 { (1 << 4) } else { 0 } |
         if neighbors & DIR_W != 0 { (1 << 2) } else { 0 } |
@@ -263,8 +253,7 @@ fn index_quadrant_sw(neighbors: u32) -> u8
 /// * `neighbors` - neighbors neighbor pixels of the point.
 ///
 /// Return true or false if the point is simple or not.
-fn is_simple_point(neighbors: u32) -> bool
-{
+fn is_simple_point(neighbors: u32) -> bool {
     let mut quad: u32 = neighbors;
 
     // set initial label
@@ -309,8 +298,7 @@ fn is_simple_point(neighbors: u32) -> bool
 /// components in the 2D neighborhood after the center pixel would
 /// have been removed.
 
-fn quadtree_labeling_sw(quad: &mut u32)
-{
+fn quadtree_labeling_sw(quad: &mut u32) {
     if *quad & DIR_SW != 0 {
         *quad &= !DIR_SW;
     }
@@ -324,8 +312,7 @@ fn quadtree_labeling_sw(quad: &mut u32)
     }
 }
 
-fn quadtree_labeling_se(quad: &mut u32)
-{
+fn quadtree_labeling_se(quad: &mut u32) {
     if *quad & DIR_S != 0 {
         *quad &= !DIR_S;
         quadtree_labeling_sw(quad);
@@ -342,8 +329,7 @@ fn quadtree_labeling_se(quad: &mut u32)
     }
 }
 
-fn quadtree_labeling_nw(quad: &mut u32)
-{
+fn quadtree_labeling_nw(quad: &mut u32) {
     if *quad & DIR_W != 0 {
         *quad &= !DIR_W;
         quadtree_labeling_sw(quad);
@@ -360,8 +346,7 @@ fn quadtree_labeling_nw(quad: &mut u32)
     }
 }
 
-fn quadtree_labeling_ne(quad: &mut u32)
-{
+fn quadtree_labeling_ne(quad: &mut u32) {
     if *quad & DIR_E != 0 {
         *quad &= !DIR_E;
         quadtree_labeling_se(quad);

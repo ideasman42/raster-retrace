@@ -14,8 +14,7 @@ mod quadric {
     fn to_tensor_matrix_inverse(
         q: &Quadric,
         epsilon: f64,
-    ) -> Option<[f64; 3]>
-    {
+    ) -> Option<[f64; 3]> {
         let det: f64 =
             (q.a2 * q.b2) -
             (q.ab * q.ab);
@@ -37,8 +36,7 @@ mod quadric {
     /*
     pub fn to_position(
         q: &Quadric,
-    ) -> [f64; 2]
-    {
+    ) -> [f64; 2] {
         return [
             q.ac,
             q.bc,
@@ -49,8 +47,7 @@ mod quadric {
     pub fn add(
         q_a: &Quadric,
         q_b: &Quadric,
-    ) -> Quadric
-    {
+    ) -> Quadric {
         return Quadric {
             a2: q_a.a2 + q_b.a2,
             ab: q_a.ab + q_b.ab,
@@ -64,8 +61,7 @@ mod quadric {
     pub fn iadd(
         q_a: &mut Quadric,
         q_b: &Quadric,
-    )
-    {
+    ) {
         q_a.a2 += q_b.a2;
         q_a.ab += q_b.ab;
         q_a.ac += q_b.ac;
@@ -76,8 +72,7 @@ mod quadric {
 
     pub fn from_plane(
         v: &[f64; 3]
-    ) -> Quadric
-    {
+    ) -> Quadric {
         return Quadric {
             a2: v[0] * v[0],
             b2: v[1] * v[1],
@@ -93,8 +88,7 @@ mod quadric {
     pub fn evaluate(
         q: &Quadric,
         v: &[f64; 2],
-    ) -> f64
-    {
+    ) -> f64 {
         return (q.a2 * v[0] * v[0]) + (q.ab * 2.0 * v[0] * v[1]) + (q.ac * 2.0 * v[0]) +
                (q.b2 * v[1] * v[1]) + (q.bc * 2.0 * v[1]) +
                (q.c2);
@@ -103,8 +97,7 @@ mod quadric {
     pub fn optimize(
         q: &Quadric,
         epsilon: f64,
-    ) -> Option<[f64; 2]>
-    {
+    ) -> Option<[f64; 2]> {
         if let Some(m) = to_tensor_matrix_inverse(q, epsilon) {
             // 3x3 matrix multiply & negate
             // (ac, bc) == (x, y).
@@ -168,8 +161,7 @@ fn edge_heap_insert(
     e_handle: &mut min_heap::NodeHandle,
     i: usize,
     simplify_threshold_sq: f64,
-)
-{
+) {
     use std::f64;
 
     let q1 = &quadrics[e.v1];
@@ -214,8 +206,7 @@ fn edge_heap_update(
     e_handle: &mut min_heap::NodeHandle,
     i: usize,
     simplify_threshold_sq: f64,
-)
-{
+) {
     if *e_handle != min_heap::NODE_HANDLE_INVALID {
         heap.remove(*e_handle);
     }
@@ -239,8 +230,7 @@ fn edge_heap_collapse(
     i: usize,
     collapse_co: &[f64; 2],
     simplify_threshold_sq: f64,
-)
-{
+) {
     let (i_prev, i_next) = {
         let e = &mut edges[i];
         let i_prev = e.index_prev;
@@ -302,8 +292,7 @@ pub fn poly_simplify(
     is_cyclic: bool,
     poly: &Vec<[f64; 2]>,
     simplify_threshold: f64,
-) -> Vec<[f64; 2]>
-{
+) -> Vec<[f64; 2]> {
     // points we're allowed to adjust
     let mut poly_edit = poly.clone();
     let mut edges: Vec<Edge> = Vec::with_capacity(poly.len()  /* is_cyclic TODO */ );
@@ -415,8 +404,7 @@ use std::collections::LinkedList;
 pub fn poly_list_simplify(
     poly_list_src: &LinkedList<(bool, Vec<[f64; 2]>)>,
     simplify_threshold: f64,
-) -> LinkedList<(bool, Vec<[f64; 2]>)>
-{
+) -> LinkedList<(bool, Vec<[f64; 2]>)> {
     let mut poly_list_dst: LinkedList<(bool, Vec<[f64; 2]>)> = LinkedList::new();
     for &(is_cyclic, ref poly_src) in poly_list_src {
         poly_list_dst.push_back(

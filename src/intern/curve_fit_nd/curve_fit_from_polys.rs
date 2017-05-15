@@ -1157,4 +1157,3 @@ pub fn fit_poly_list(
 
     return curve_list_dst;
 }
-

@@ -40,8 +40,7 @@ pub fn extract_outline(
     size: &[usize; 2],
     turn_policy: TurnPolicy,
     use_simplify: bool,
-) -> LinkedList<(bool, Vec<[i32; DIMS]>)>
-{
+) -> LinkedList<(bool, Vec<[i32; DIMS]>)> {
     mod dir {
         pub const L: u8 = (1 << 0);
         pub const R: u8 = (1 << 1);
@@ -135,8 +134,7 @@ pub fn extract_outline(
             turn_policy: TurnPolicy,
             use_simplify: bool,
             direction_init_prev: u8,
-        ) -> (Vec<[i32; DIMS]>, usize)
-        {
+        ) -> (Vec<[i32; DIMS]>, usize) {
             let mut poly: Vec<[i32; DIMS]> = vec![];
             let mut x = x_init;
             let mut y = y_init;
@@ -209,8 +207,7 @@ pub fn extract_outline(
                     x: i32,
                     y: i32,
                     image_data: &(&[bool], [i32; 2]),
-                ) -> bool
-                {
+                ) -> bool {
 
                     macro_rules! xy_or {
                         ($x:expr, $y:expr, $default:expr) => {
@@ -321,4 +318,3 @@ pub fn extract_outline(
     }
     return poly_list;
 }
-
