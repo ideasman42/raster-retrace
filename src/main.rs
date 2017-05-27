@@ -286,7 +286,7 @@ fn main()
             parser.add_argument(
                 "-m", "--mode",
                 concat!("The method used for tracing the image in [OUTLINE, CENTER], ",
-                        "(defaults to CENTER)."),
+                        "(defaults to OUTLINE)."),
                 "MODE",
                 Box::new(|dest_data, my_args| {
                     match my_args[0].as_ref() {
@@ -447,7 +447,7 @@ fn main()
             parser.add_argument(
                 "-p", "--passes",
                 concat!("Write extra debug passes, comma separated list of passes including ",
-                        "[PIXEL, PRE_FIT], ",
+                        "[PIXEL, PRE_FIT, TANGENT], ",
                         "(defaults to [])."),
                 "PASSES",
                 Box::new(|dest_data, my_args| {
