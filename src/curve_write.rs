@@ -46,8 +46,8 @@ pub mod svg {
 
         f.write_fmt(format_args!(concat!("  ",
             "<g stroke='white' ",
-            "stroke-opacity='{}' ",
-            "stroke-width='0.5' ",
+            "stroke-opacity='0.5' ",
+            "stroke-width='{:.2}' ",
             "fill='black' ",
             "fill-opacity='0.5' ",
             ">"),
@@ -59,7 +59,7 @@ pub mod svg {
             f.write(b"M ")?;
             for v in p {
                 f.write_fmt(format_args!(
-                    "{},{} ",
+                    "{:.2},{:.2} ",
                     v[0] * scale,
                     v[1] * scale,
                 ))?;
@@ -85,10 +85,10 @@ pub mod svg {
         f.write_fmt(format_args!(concat!("  ",
             "<g stroke='grey' ",
             "stroke-opacity='0.75' ",
-            "stroke-width='{}' ",
+            "stroke-width='{:.2}' ",
             "fill='none' ",
             ">"),
-            1.0 * pass_scale,
+            0.5 * pass_scale,
         ))?;
 
         f.write(b"    <path d='")?;
@@ -97,7 +97,7 @@ pub mod svg {
             f.write(b"M ")?;
             for v in p {
                 f.write_fmt(format_args!(
-                    "{},{} ",
+                    "{:.2},{:.2} ",
                     v[0] * scale,
                     v[1] * scale,
                 ))?;
@@ -121,19 +121,19 @@ pub mod svg {
             f.write_fmt(format_args!(concat!("  ",
                 "<g stroke='black' ",
                 "stroke-opacity='0.5' ",
-                "stroke-width='{}' ",
+                "stroke-width='{:.2}' ",
                 ">"),
                 2.0 * pass_scale,
             ))?;
             for &(_is_cyclic, ref p) in poly_list {
                 for v in p {
                     f.write_fmt(format_args!(
-                        "<line x1='{}' y1='{}' x2='{}' y2='{}' />",
+                        "<line x1='{:.2}' y1='{:.2}' x2='{:.2}' y2='{:.2}' />",
                         v[0][0] * scale, v[0][1] * scale,
                         v[1][0] * scale, v[1][1] * scale,
                     ))?;
                     f.write_fmt(format_args!(
-                        "<line x1='{}' y1='{}' x2='{}' y2='{}' />",
+                        "<line x1='{:.2}' y1='{:.2}' x2='{:.2}' y2='{:.2}' />",
                         v[1][0] * scale, v[1][1] * scale,
                         v[2][0] * scale, v[2][1] * scale,
                     ))?;
@@ -147,7 +147,7 @@ pub mod svg {
             f.write_fmt(format_args!(concat!("  ",
                 "<g stroke='white' ",
                 "stroke-opacity='1.0' ",
-                "stroke-width='{}' ",
+                "stroke-width='{:.2}' ",
                 "fill='black' ",
                 "fill-opacity='0.5' ",
                 ">"),
@@ -158,7 +158,7 @@ pub mod svg {
                 for v in p {
                     for h in v {
                         f.write_fmt(format_args!(
-                            "<circle cx='{}' cy='{}' r='{}'/>",
+                            "<circle cx='{:.2}' cy='{:.2}' r='{:.2}'/>",
                             h[0] * scale,
                             h[1] * scale,
                             2.0 * pass_scale,
@@ -166,12 +166,12 @@ pub mod svg {
                     }
 
                     f.write_fmt(format_args!(
-                        "<line x1='{}' y1='{}' x2='{}' y2='{}' />",
+                        "<line x1='{:.2}' y1='{:.2}' x2='{:.2}' y2='{:.2}' />",
                         v[0][0] * scale, v[0][1] * scale,
                         v[1][0] * scale, v[1][1] * scale,
                     ))?;
                     f.write_fmt(format_args!(
-                        "<line x1='{}' y1='{}' x2='{}' y2='{}' />",
+                        "<line x1='{:.2}' y1='{:.2}' x2='{:.2}' y2='{:.2}' />",
                         v[1][0] * scale, v[1][1] * scale,
                         v[2][0] * scale, v[2][1] * scale,
                     ))?;
@@ -222,13 +222,13 @@ pub mod svg {
                 // Could optimize this, but keep now for simplicity
                 if is_first {
                     f.write_fmt(format_args!(
-                        "M {},{} ",
+                        "M {:.2},{:.2} ",
                         k0[0] * scale,
                         k0[1] * scale,
                     ))?;
                 }
                 f.write_fmt(format_args!(
-                    "C {},{} {},{} {},{} ",
+                    "C {:.2},{:.2} {:.2},{:.2} {:.2},{:.2} ",
                     h0[0] * scale, h0[1] * scale,
                     h1[0] * scale, h1[1] * scale,
                     k1[0] * scale, k1[1] * scale,
@@ -286,13 +286,13 @@ pub mod svg {
                     // Could optimize this, but keep now for simplicity
                     if is_first {
                         f.write_fmt(format_args!(
-                            "M {},{} ",
+                            "M {:.2},{:.2} ",
                             k0[0] * scale,
                             k0[1] * scale,
                         ))?;
                     }
                     f.write_fmt(format_args!(
-                        "C {},{} {},{} {},{} ",
+                        "C {:.2},{:.2} {:.2},{:.2} {:.2},{:.2} ",
                         h0[0] * scale, h0[1] * scale,
                         h1[0] * scale, h1[1] * scale,
                         k1[0] * scale, k1[1] * scale,
@@ -325,13 +325,13 @@ pub mod svg {
                     // Could optimize this, but keep now for simplicity
                     if is_first {
                         f.write_fmt(format_args!(
-                            "M {},{} ",
+                            "M {:.2},{:.2} ",
                             k0[0] * scale,
                             k0[1] * scale,
                         ))?;
                     }
                     f.write_fmt(format_args!(
-                        "C {},{} {},{} {},{} ",
+                        "C {:.2},{:.2} {:.2},{:.2} {:.2},{:.2} ",
                         h0[0] * scale, h0[1] * scale,
                         h1[0] * scale, h1[1] * scale,
                         k1[0] * scale, k1[1] * scale,
