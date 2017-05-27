@@ -29,6 +29,7 @@ Usage
 .. Output of '--help'
 
 ::
+
    Bitmap image tracing utility
 
    Options:
@@ -43,9 +44,8 @@ Usage
 
    Tracing Behavior:
 
-       -m, --mode MODE          The method used for tracing the image in [OUTLINE, CENTER], (defaults to CENTER).
-       -z, --turnpolicy POLICY  Method for extracting outlines
-                                [BLACK, WHITE, MAJORITY, MINORITY], (defaults to MAJORITY).
+       -m, --mode MODE          The method used for tracing the image in [OUTLINE, CENTER], (defaults to OUTLINE).
+       -z, --turnpolicy POLICY  Method for extracting outlines [BLACK, WHITE, MAJORITY, MINORITY], (defaults to MAJORITY).
 
 
    Curve Evaluation Options:
@@ -63,8 +63,9 @@ Usage
        Generic options for output (format agnostic).
 
        -s, --scale SCALE    Scale for output, (defaults to 1).
-       -p, --passes PASSES  Write extra debug passes,
-                            comma separated list of passes including [PIXEL, PRE_FIT], (defaults to []).
+       -p, --passes PASSES  Write extra debug graphics, comma separated list of passes including [PIXEL, PRE_FIT, TANGENT], (defaults to []).
+       --pass-scale SCALE   Scale graphic details used in some debug passes, (defaults to 1).
+
 
 TODO
 ====
