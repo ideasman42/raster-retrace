@@ -26,6 +26,8 @@ Feature Set
 Examples
 ========
 
+Examples below use ``TANGENT`` and ``PIXEL`` passes to show the curve fit.
+
 .. figure:: https://cloud.githubusercontent.com/assets/1869379/26520327/6cead016-4313-11e7-9a98-1ec17fdb5a23.png
    :target: https://github.com/ideasman42/raster-retrace-samples/blob/master/output/tauro_2_only_bull.svg
 
