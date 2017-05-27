@@ -23,13 +23,32 @@ Feature Set
    Support for other image formats is planned.
 
 
+Examples
+========
+
+.. figure:: https://cloud.githubusercontent.com/assets/1869379/26520327/6cead016-4313-11e7-9a98-1ec17fdb5a23.png
+   :target: https://github.com/ideasman42/raster-retrace-samples/blob/master/output/tauro_2_only_bull.svg
+
+.. figure:: https://cloud.githubusercontent.com/assets/1869379/26520404/42cfb506-4315-11e7-9f76-a83edb73f868.png
+   :target: https://github.com/ideasman42/raster-retrace-samples/blob/master/output/tauro_2.svg
+
+.. figure:: https://cloud.githubusercontent.com/assets/1869379/26520321/6049d294-4313-11e7-82a8-9c29e40c3b43.png
+   :target: https://github.com/ideasman42/raster-retrace-samples/blob/master/output/jacqueline_face_i.svg
+
+.. figure:: https://cloud.githubusercontent.com/assets/1869379/26520354/1bd0f858-4314-11e7-9f78-604d0fab5f5d.png
+   :target: https://github.com/ideasman42/raster-retrace-samples/blob/master/output/blob_simple.svg
+
+.. figure:: https://cloud.githubusercontent.com/assets/1869379/26520322/62e16620-4313-11e7-9a2f-550c015776ee.png
+   :target: https://github.com/ideasman42/raster-retrace-samples/blob/master/output/old_guitarist.svg
+
+
+
 Usage
 =====
 
 .. Output of '--help'
 
 ::
-
    Bitmap image tracing utility
 
    Options:
