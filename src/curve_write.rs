@@ -105,7 +105,7 @@ pub mod svg {
         Ok(())
     }
 
-    pub fn write_curve_list_with_debug_info(
+    pub fn write_curve_list_with_tangent_info(
         mut f: &::std::fs::File,
         scale: f64,
         poly_list: &LinkedList<(bool, Vec<[[f64; DIMS]; 3]>)>,

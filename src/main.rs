@@ -183,7 +183,7 @@ pub fn trace_image(
 
             }
             if (debug_passes & debug_pass::kind::TANGENT) != 0 {
-                curve_write::svg::write_curve_list_with_debug_info(
+                curve_write::svg::write_curve_list_with_tangent_info(
                     &f, output_scale, &curve_list)?;
             }
         }
