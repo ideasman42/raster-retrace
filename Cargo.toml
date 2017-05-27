@@ -1,6 +1,6 @@
 [package]
 name = "raster-retrace"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Campbell Barton <ideasman42@gmail.com>"]
 description = "Image tracing utility, (performed using bezier curve fitting)."
 readme = "readme.rst"
