@@ -168,7 +168,7 @@ pub fn trace_image(
         };
 
         // debug info, for developing mostly
-        if pass_items.len() != 0 {
+        {
             for item in pass_items {
                 match mode {
                     curve_fit_nd::TraceMode::Outline => {
