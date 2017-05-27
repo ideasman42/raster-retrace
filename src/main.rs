@@ -116,13 +116,8 @@ pub fn trace_image(
         let poly_list_dst =
             polys_simplify_collapse::poly_list_simplify(&poly_list_dst, simplify_threshold);
 
-        if (debug_passes & debug_pass::kind::PRE_FIT) != 0 {
-            debug_pass::add_pass(&mut pass_items, &poly_list_dst);
-        }
-
         let poly_list_dst =
             polys_utils::poly_list_subdivide(&poly_list_dst);
-
 
         // While a little excessive, setting the `length_threshold` around 1.0
         // helps by ensure the density of the polygon is even
@@ -133,9 +128,9 @@ pub fn trace_image(
         poly_list_dst
     };
 
-    // if (debug_passes & debug_pass::kind::PRE_FIT) != 0 {
-        // debug_pass::add_pass(&mut pass_items, &poly_list_to_fit);
-    // }
+    if (debug_passes & debug_pass::kind::PRE_FIT) != 0 {
+        debug_pass::add_pass(&mut pass_items, &poly_list_to_fit);
+    }
 
     let curve_list =
         curve_fit_nd::fit_poly_list(
