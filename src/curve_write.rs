@@ -19,12 +19,13 @@ pub mod svg {
         scale: f64,
     ) -> Result<(), ::std::io::Error> {
         writeln!(f, "<?xml version='1.0' encoding='UTF-8'?>")?;
-        writeln!(f,
-            "<svg version='1.1' \
-            width='{}' height='{}' \
-            viewBox='0 0 {} {}' \
-            xmlns='http://www.w3.org/2000/svg' \
-            xmlns:xlink='http://www.w3.org/1999/xlink'>",
+        writeln!(f, concat!(
+            "<svg version='1.1' ",
+            "width='{}' height='{}' ",
+            "viewBox='0 0 {} {}' ",
+            "xmlns='http://www.w3.org/2000/svg' ",
+            "xmlns:xlink='http://www.w3.org/1999/xlink' ",
+            ">"),
             scale * size[0] as f64,
             scale * size[1] as f64,
             scale * size[0] as f64,
@@ -42,14 +43,14 @@ pub mod svg {
     ) -> Result<(), ::std::io::Error> {
         use std::io::prelude::Write;
 
-        writeln!(f,
-            "  <g stroke='white' \
-            stroke-opacity='0.5' \
-            stroke-width='1' \
-            fill='black' \
-            fill-opacity='0.5' \
-            >"
-        )?;
+        writeln!(f, concat!("  ",
+            "<g stroke='white' ",
+            "stroke-opacity='0.75' ",
+            "stroke-width='0.25' ",
+            "fill='black' ",
+            "fill-opacity='0.5' ",
+            ">",
+        ))?;
 
         f.write(b"    <path d='")?;
         for &(_is_cyclic, ref p) in poly_list {
@@ -78,13 +79,13 @@ pub mod svg {
     ) -> Result<(), ::std::io::Error> {
         use std::io::prelude::Write;
 
-        writeln!(f,
-            "  <g stroke='black' \
-            stroke-opacity='1.0' \
-            stroke-width='1' \
-            fill='none' \
-            >"
-        )?;
+        writeln!(f, concat!("  ",
+            "<g stroke='black' ",
+            "stroke-opacity='1.0' ",
+            "stroke-width='1' ",
+            "fill='none' ",
+            ">"
+        ))?;
 
         f.write(b"    <path d='")?;
         for &(_is_cyclic, ref p) in poly_list {
@@ -112,12 +113,12 @@ pub mod svg {
     ) -> Result<(), ::std::io::Error> {
         // handle segments
         {
-            writeln!(f,
-                "  <g stroke='black' \
-                stroke-opacity='0.5' \
-                stroke-width='2' \
-                >"
-            )?;
+            writeln!(f, concat!("  ",
+                "<g stroke='black' ",
+                "stroke-opacity='0.5' ",
+                "stroke-width='2' ",
+                ">",
+            ))?;
             for &(_is_cyclic, ref p) in poly_list {
                 for v in p {
                     f.write_fmt(format_args!(
@@ -137,13 +138,14 @@ pub mod svg {
 
         // circle's
         {
-            writeln!(f,
-                "  <g stroke='white' \
-                stroke-opacity='1.0' \
-                stroke-width='1' \
-                fill='black' \
-                >"
-            )?;
+            writeln!(f, concat!("  ",
+                "<g stroke='white' ",
+                "stroke-opacity='1.0' ",
+                "stroke-width='1' ",
+                "fill='black' ",
+                "fill-opacity='0.5' ",
+                ">",
+            ))?;
 
             for &(_is_cyclic, ref p) in poly_list {
                 for v in p {
@@ -181,14 +183,14 @@ pub mod svg {
     ) -> Result<(), ::std::io::Error> {
         use std::io::prelude::Write;
 
-        writeln!(f,
-            "  <g stroke='black' \
-            stroke-opacity='0.0' \
-            stroke-width='0' \
-            fill='black' \
-            fill-opacity='1' \
-            >"
-        )?;
+        writeln!(f, concat!("  ",
+            "<g stroke='black' ",
+            "stroke-opacity='0.0' ",
+            "stroke-width='0' ",
+            "fill='black' ",
+            "fill-opacity='1' ",
+            ">",
+        ))?;
 
         f.write(b"    <path d='")?;
         for &(_is_cyclic, ref p) in poly_list {
@@ -245,13 +247,13 @@ pub mod svg {
     ) -> Result<(), ::std::io::Error> {
         use std::io::prelude::Write;
 
-        writeln!(f,
-            "  <g stroke='black' \
-            stroke-opacity='1.0' \
-            stroke-width='1' \
-            fill='none' \
-            >"
-        )?;
+        writeln!(f, concat!("  ",
+            "<g stroke='black' ",
+            "stroke-opacity='1.0' ",
+            "stroke-width='1' ",
+            "fill='none' ",
+            ">",
+        ))?;
 
         for &(is_cyclic, ref p) in poly_list {
             if is_cyclic {
