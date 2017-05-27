@@ -1117,7 +1117,8 @@ pub fn fit_poly_list(
 ) -> LinkedList<(bool, Vec<[[f64; DIMS]; 3]>)> {
     let mut curve_list_dst: LinkedList<(bool, Vec<[[f64; DIMS]; 3]>)> = LinkedList::new();
 
-    if poly_list_src.len() <= 1 || true {
+    // Single threaded (we may want to allow users to force this).
+    if poly_list_src.len() <= 1 {
         for (is_cyclic, poly_src) in poly_list_src {
             let poly_dst = fit_poly_single(
                 &poly_src, is_cyclic, error_threshold,
@@ -1138,7 +1139,7 @@ pub fn fit_poly_list(
         // sort length for more even threading
         // and so larger at the end so they are popped off and handled first,
         // smaller ones can be handled when other processors are free.
-        poly_vec_src.sort_by(|a, b| a.1.len().cmp(&b.1.len()).reverse());
+        poly_vec_src.sort_by(|a, b| a.1.len().cmp(&b.1.len()));
 
         while let Some((is_cyclic, poly_src_clone)) = poly_vec_src.pop() {
             join_handles.push(thread::spawn(move || {
