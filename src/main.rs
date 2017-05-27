@@ -74,6 +74,7 @@ pub fn trace_image(
     // only for outline
     turn_policy: polys_from_raster_outline::TurnPolicy,
     debug_passes: u32,
+    debug_pass_scale: f64,
 ) -> Result<(), ::std::io::Error>
 {
     debug_assert!(size[0] * size[1] == image.len());
@@ -173,18 +174,18 @@ pub fn trace_image(
                 match mode {
                     curve_fit_nd::TraceMode::Outline => {
                         curve_write::svg::write_poly_list_filled(
-                            &f, &size, output_scale, &item.poly_list)?;
+                            &f, &size, output_scale, &item.poly_list, debug_pass_scale)?;
                     },
                     curve_fit_nd::TraceMode::Centerline => {
                         curve_write::svg::write_poly_list_centerline(
-                            &f, &size, output_scale, &item.poly_list)?;
+                            &f, &size, output_scale, &item.poly_list, debug_pass_scale)?;
                     }
                 };
 
             }
             if (debug_passes & debug_pass::kind::TANGENT) != 0 {
                 curve_write::svg::write_curve_list_with_tangent_info(
-                    &f, output_scale, &curve_list)?;
+                    &f, output_scale, &curve_list, debug_pass_scale)?;
             }
         }
 
@@ -207,6 +208,7 @@ pub struct TraceParams {
     pub turn_policy: polys_from_raster_outline::TurnPolicy,
 
     pub debug_passes: u32,
+    pub debug_pass_scale: f64,
 
     show_help: bool,
 }
@@ -226,6 +228,7 @@ impl Default for TraceParams {
             mode: curve_fit_nd::TraceMode::Outline,
             turn_policy: polys_from_raster_outline::TurnPolicy::Majority,
             debug_passes: 0,
+            debug_pass_scale: 1.0,
 
             show_help: false,
         }
@@ -446,7 +449,7 @@ fn main()
             );
             parser.add_argument(
                 "-p", "--passes",
-                concat!("Write extra debug passes, comma separated list of passes including ",
+                concat!("Write extra debug graphics, comma separated list of passes including ",
                         "[PIXEL, PRE_FIT, TANGENT], ",
                         "(defaults to [])."),
                 "PASSES",
@@ -471,6 +474,24 @@ fn main()
                         }
                     }
                     return Ok(1);
+                }),
+                1, argparse::ARGDEF_DEFAULT,
+                parser_group,
+            );
+            parser.add_argument(
+                "", "--pass-scale",
+                "Scale graphic details used in some debug passes, (defaults to 1).",
+                "SCALE",
+                Box::new(|dest_data, my_args| {
+                    match f64::from_str(&my_args[0]) {
+                        Ok(v) => {
+                            dest_data.debug_pass_scale = v;
+                            return Ok(1);
+                        },
+                        Err(e) => {
+                            return Err(e.to_string());
+                        },
+                    }
                 }),
                 1, argparse::ARGDEF_DEFAULT,
                 parser_group,
@@ -539,6 +560,7 @@ fn main()
                 trace_params.mode,
                 trace_params.turn_policy,
                 trace_params.debug_passes,
+                trace_params.debug_pass_scale * trace_params.output_scale,
                 )
             {
                 Ok(()) => {}

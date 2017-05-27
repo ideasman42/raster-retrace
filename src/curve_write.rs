@@ -40,16 +40,18 @@ pub mod svg {
         _size: &[usize; 2],
         scale: f64,
         poly_list: &LinkedList<(bool, Vec<[f64; DIMS]>)>,
+        pass_scale: f64,
     ) -> Result<(), ::std::io::Error> {
         use std::io::prelude::Write;
 
-        writeln!(f, concat!("  ",
+        f.write_fmt(format_args!(concat!("  ",
             "<g stroke='white' ",
-            "stroke-opacity='0.75' ",
-            "stroke-width='0.25' ",
+            "stroke-opacity='{}' ",
+            "stroke-width='0.5' ",
             "fill='black' ",
             "fill-opacity='0.5' ",
-            ">",
+            ">"),
+            0.5 * pass_scale,
         ))?;
 
         f.write(b"    <path d='")?;
@@ -76,15 +78,17 @@ pub mod svg {
         _size: &[usize; 2],
         scale: f64,
         poly_list: &LinkedList<(bool, Vec<[f64; DIMS]>)>,
+        pass_scale: f64,
     ) -> Result<(), ::std::io::Error> {
         use std::io::prelude::Write;
 
-        writeln!(f, concat!("  ",
-            "<g stroke='black' ",
-            "stroke-opacity='1.0' ",
-            "stroke-width='1' ",
+        f.write_fmt(format_args!(concat!("  ",
+            "<g stroke='grey' ",
+            "stroke-opacity='0.75' ",
+            "stroke-width='{}' ",
             "fill='none' ",
-            ">"
+            ">"),
+            1.0 * pass_scale,
         ))?;
 
         f.write(b"    <path d='")?;
@@ -110,14 +114,16 @@ pub mod svg {
         mut f: &::std::fs::File,
         scale: f64,
         poly_list: &LinkedList<(bool, Vec<[[f64; DIMS]; 3]>)>,
+        pass_scale: f64,
     ) -> Result<(), ::std::io::Error> {
         // handle segments
         {
-            writeln!(f, concat!("  ",
+            f.write_fmt(format_args!(concat!("  ",
                 "<g stroke='black' ",
                 "stroke-opacity='0.5' ",
-                "stroke-width='2' ",
-                ">",
+                "stroke-width='{}' ",
+                ">"),
+                2.0 * pass_scale,
             ))?;
             for &(_is_cyclic, ref p) in poly_list {
                 for v in p {
@@ -138,22 +144,24 @@ pub mod svg {
 
         // circle's
         {
-            writeln!(f, concat!("  ",
+            f.write_fmt(format_args!(concat!("  ",
                 "<g stroke='white' ",
                 "stroke-opacity='1.0' ",
-                "stroke-width='1' ",
+                "stroke-width='{}' ",
                 "fill='black' ",
                 "fill-opacity='0.5' ",
-                ">",
+                ">"),
+                1.0 * pass_scale,
             ))?;
 
             for &(_is_cyclic, ref p) in poly_list {
                 for v in p {
                     for h in v {
                         f.write_fmt(format_args!(
-                            "<circle cx='{}' cy='{}' r='4'/>",
+                            "<circle cx='{}' cy='{}' r='{}'/>",
                             h[0] * scale,
                             h[1] * scale,
+                            2.0 * pass_scale,
                         ))?;
                     }
 
