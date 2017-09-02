@@ -15,7 +15,7 @@ macro_rules! test_image {
                 0.75,
                 curve_fit_nd::TraceMode::Outline,
                 polys_from_raster_outline::TurnPolicy::Majority,
-                0,
+                0, 1.0,
             ) {
                 Ok(_) => (),
                 Err(e) => println!("Error {:?}", e),
