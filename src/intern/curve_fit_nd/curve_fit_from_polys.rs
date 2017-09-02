@@ -252,7 +252,7 @@ mod refine_remove {
 
         let k_curr_heap_node = &mut knots_handle[k_curr.index];
         if fit_error_max_sq < error_max_sq {
-            if *k_curr_heap_node != min_heap::NODE_HANDLE_INVALID {
+            if *k_curr_heap_node != min_heap::NodeHandle::INVALID {
                 heap.remove(*k_curr_heap_node);
             }
             *k_curr_heap_node = heap.insert(
@@ -263,9 +263,9 @@ mod refine_remove {
                 },
             );
         } else {
-            if *k_curr_heap_node != min_heap::NODE_HANDLE_INVALID {
+            if *k_curr_heap_node != min_heap::NodeHandle::INVALID {
                 heap.remove(*k_curr_heap_node);
-                *k_curr_heap_node = min_heap::NODE_HANDLE_INVALID;
+                *k_curr_heap_node = min_heap::NodeHandle::INVALID;
             }
         }
     }
@@ -291,7 +291,7 @@ mod refine_remove {
         }
 
         while let Some((error_sq, r)) = heap.pop_min_with_value() {
-            knots_handle[r.index] = min_heap::NODE_HANDLE_INVALID;
+            knots_handle[r.index] = min_heap::NodeHandle::INVALID;
 
             let k_next_index;
             let k_prev_index;
@@ -399,7 +399,7 @@ mod refine_refit {
                     );
 
             if USE_REFIT_REMOVE && fit_error_max_sq < error_max_sq {
-                if *k_curr_heap_node != min_heap::NODE_HANDLE_INVALID {
+                if *k_curr_heap_node != min_heap::NodeHandle::INVALID {
                     heap.remove(*k_curr_heap_node);
                 }
 
@@ -426,9 +426,9 @@ mod refine_refit {
 
         if !use_optimize_exhaustive {
             if (k_refit_index == INVALID) || (k_refit_index == k_curr.index) {
-                if *k_curr_heap_node != min_heap::NODE_HANDLE_INVALID {
+                if *k_curr_heap_node != min_heap::NodeHandle::INVALID {
                     heap.remove(*k_curr_heap_node);
-                    *k_curr_heap_node = min_heap::NODE_HANDLE_INVALID;
+                    *k_curr_heap_node = min_heap::NodeHandle::INVALID;
                     return;
                 }
             }
@@ -518,7 +518,7 @@ mod refine_refit {
             handles_next, fit_error_dst_next,
         )) = refit_result_or_none {
 
-            if *k_curr_heap_node != min_heap::NODE_HANDLE_INVALID {
+            if *k_curr_heap_node != min_heap::NodeHandle::INVALID {
                 heap.remove(*k_curr_heap_node);
             }
 
@@ -539,9 +539,9 @@ mod refine_refit {
             return;
         }
 
-        if *k_curr_heap_node != min_heap::NODE_HANDLE_INVALID {
+        if *k_curr_heap_node != min_heap::NodeHandle::INVALID {
             heap.remove(*k_curr_heap_node);
-            *k_curr_heap_node = min_heap::NODE_HANDLE_INVALID;
+            *k_curr_heap_node = min_heap::NodeHandle::INVALID;
         }
     }
 
@@ -570,7 +570,7 @@ mod refine_refit {
 
 
         while let Some(r) = heap.pop_min() {
-            knots_handle[r.index] = min_heap::NODE_HANDLE_INVALID;
+            knots_handle[r.index] = min_heap::NodeHandle::INVALID;
 
             let k_prev_index;
             let k_next_index;
@@ -713,7 +713,7 @@ mod refine_corner {
                         );
                 if fit_error_dst_next < error_max_sq {
 
-                    if *k_split_heap_node != min_heap::NODE_HANDLE_INVALID {
+                    if *k_split_heap_node != min_heap::NodeHandle::INVALID {
                         heap.remove(*k_split_heap_node);
                     }
 
@@ -735,9 +735,9 @@ mod refine_corner {
             }
         }
 
-        if *k_split_heap_node != min_heap::NODE_HANDLE_INVALID {
+        if *k_split_heap_node != min_heap::NodeHandle::INVALID {
             heap.remove(*k_split_heap_node);
-            *k_split_heap_node = min_heap::NODE_HANDLE_INVALID;
+            *k_split_heap_node = min_heap::NodeHandle::INVALID;
         }
     }
 
@@ -832,7 +832,7 @@ mod refine_corner {
         }
 
         while let Some(c) = heap.pop_min() {
-            knots_handle[c.index] = min_heap::NODE_HANDLE_INVALID;
+            knots_handle[c.index] = min_heap::NodeHandle::INVALID;
 
             let k_split_index = c.index;
             let k_prev_index = c.index_pair[0];
@@ -922,7 +922,7 @@ pub fn fit_poly_single(
     let mut knots: Vec<Knot> =
         Vec::with_capacity(knots_len);
     let mut knots_handle: Vec<min_heap::NodeHandle> =
-        vec![min_heap::NODE_HANDLE_INVALID; knots_len];
+        vec![min_heap::NodeHandle::INVALID; knots_len];
 
     let use_corner = corner_angle < ::std::f64::consts::PI;
 

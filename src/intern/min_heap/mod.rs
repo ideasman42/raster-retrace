@@ -32,7 +32,9 @@ const INVALID: usize = ::std::usize::MAX;
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub struct NodeHandle(usize);
 
-pub const NODE_HANDLE_INVALID: NodeHandle = NodeHandle(INVALID);
+impl NodeHandle {
+    pub const INVALID: NodeHandle = NodeHandle(INVALID);
+}
 
 pub trait HeapKey: PartialOrd + Copy {}
 impl<TOrd> HeapKey for TOrd where TOrd: PartialOrd + Copy {}

@@ -193,7 +193,7 @@ fn edge_heap_insert(
                 }
             )
         } else {
-            min_heap::NODE_HANDLE_INVALID
+            min_heap::NodeHandle::INVALID
         }
     };
 }
@@ -207,7 +207,7 @@ fn edge_heap_update(
     i: usize,
     simplify_threshold_sq: f64,
 ) {
-    if *e_handle != min_heap::NODE_HANDLE_INVALID {
+    if *e_handle != min_heap::NodeHandle::INVALID {
         heap.remove(*e_handle);
     }
     edge_heap_insert(
@@ -342,7 +342,7 @@ pub fn poly_simplify(
     // Edges are setup, now collapse
     let simplify_threshold_sq = simplify_threshold * simplify_threshold;
     let mut heap = min_heap::MinHeap::<f64, EdgeRemove>::with_capacity(edges.len());
-    let mut edges_handle = vec![min_heap::NODE_HANDLE_INVALID; edges.len()];
+    let mut edges_handle = vec![min_heap::NodeHandle::INVALID; edges.len()];
     for i in {
         if is_cyclic {
             0..edges.len()
@@ -364,7 +364,7 @@ pub fn poly_simplify(
 
     while let Some(r) = heap.pop_min() {
         // will never use again, set invalid for hygiene
-        edges_handle[r.edge_index] = min_heap::NODE_HANDLE_INVALID;
+        edges_handle[r.edge_index] = min_heap::NodeHandle::INVALID;
         if poly_remaining_len <= poly_minimum_len {
             break;
         }
