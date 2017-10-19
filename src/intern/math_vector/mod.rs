@@ -8,6 +8,7 @@
 
 pub const DIMS: usize = 2;
 
+/*
 macro_rules! expand_dims_eval {
     ($index_var:ident, $const_var:expr, $body:block) => {
         {
@@ -18,6 +19,7 @@ macro_rules! expand_dims_eval {
         }
     }
 }
+*/
 
 macro_rules! expand_dims_into {
     ($index_var:ident, $const_var:expr, $body:block) => {

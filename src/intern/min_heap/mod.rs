@@ -184,7 +184,7 @@ impl<TOrd: HeapKey, TVal: HeapValue> MinHeap<TOrd, TVal> {
         &mut self, node_data: Node<TOrd, TVal>,
     ) -> NodeHandle {
         let nhandle;
-        if self.free == INVALID {
+        if unlikely!(self.free == INVALID) {
             nhandle = self.node.len();
             self.node.push(node_data);
         } else {
@@ -264,7 +264,7 @@ impl<TOrd: HeapKey, TVal: HeapValue> MinHeap<TOrd, TVal> {
         &mut self,
     ) -> Option<(TOrd, TVal)> {
         // copied from pop_min
-        if self.tree_index.len() == 0 {
+        if unlikely!(self.tree_index.len() == 0) {
             return None;
         }
 

@@ -297,7 +297,7 @@ mod refine_remove {
             let k_prev_index;
             {
                 // let r: &mut remove_states[r_index];
-                let mut k_curr: &mut Knot = &mut knots[r.index];
+                let k_curr: &mut Knot = &mut knots[r.index];
 
                 if unlikely!(*knots_len_remaining <= 2) {
                     continue;
