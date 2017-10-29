@@ -324,17 +324,17 @@ impl<TOrd: HeapKey, TVal: HeapValue> MinHeap<TOrd, TVal> {
     ) {
         debug_assert!(self.tree_index.len() != 0);
         debug_assert!(nhandle.0 < self.node.len());
-        let index;
-        {
+        let (index, value_curr) = {
             let node = &mut self.node[nhandle.0];
-            if node.value == value {
-                return;
-            }
-            node.value = value;
-            index = node.index;
+            (node.index, node.value)
         };
-        self.heap_up(index);
-        self.heap_down(index);
+        if value < value_curr {
+            self.node[nhandle.0].value = value;
+            self.heap_up(index);
+        } else if value > value_curr {
+            self.node[nhandle.0].value = value;
+            self.heap_down(index);
+        }
     }
 
     pub fn node_value_update_with_data(
