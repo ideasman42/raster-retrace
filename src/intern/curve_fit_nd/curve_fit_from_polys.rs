@@ -252,10 +252,8 @@ mod refine_remove {
 
         let k_curr_heap_node = &mut knots_handle[k_curr.index];
         if fit_error_max_sq < error_max_sq {
-            if *k_curr_heap_node != min_heap::NodeHandle::INVALID {
-                heap.remove(*k_curr_heap_node);
-            }
-            *k_curr_heap_node = heap.insert(
+            heap.insert_or_update(
+                k_curr_heap_node,
                 fit_error_max_sq,
                 KnotRemoveState {
                     index: k_curr.index,
@@ -399,12 +397,9 @@ mod refine_refit {
                     );
 
             if USE_REFIT_REMOVE && fit_error_max_sq < error_max_sq {
-                if *k_curr_heap_node != min_heap::NodeHandle::INVALID {
-                    heap.remove(*k_curr_heap_node);
-                }
-
                 // Always perform removal before refitting, (make a negative number)
-                *k_curr_heap_node = heap.insert(
+                heap.insert_or_update(
+                    k_curr_heap_node,
                     // Weight for the greatest improvement
                     fit_error_max_sq - error_max_sq,
                     KnotRefitState {
@@ -517,16 +512,11 @@ mod refine_refit {
             handles_prev, fit_error_dst_prev,
             handles_next, fit_error_dst_next,
         )) = refit_result_or_none {
-
-            if *k_curr_heap_node != min_heap::NodeHandle::INVALID {
-                heap.remove(*k_curr_heap_node);
-            }
-
             let fit_error_dst_max_sq =
                 fit_error_dst_prev.max(fit_error_dst_next);
             debug_assert!(fit_error_dst_max_sq < cost_sq_src_max);
-
-            *k_curr_heap_node = heap.insert(
+            heap.insert_or_update(
+                k_curr_heap_node,
                 // Weight for the greatest improvement.
                 cost_sq_src_max - fit_error_dst_max_sq,
                 KnotRefitState {
@@ -712,13 +702,9 @@ mod refine_corner {
                         &pd.tangents[k_next.tan[0]],
                         );
                 if fit_error_dst_next < error_max_sq {
-
-                    if *k_split_heap_node != min_heap::NodeHandle::INVALID {
-                        heap.remove(*k_split_heap_node);
-                    }
-
                     // _must_ be assigned to k_split, later
-                    *k_split_heap_node = heap.insert(
+                    heap.insert_or_update(
+                        k_split_heap_node,
                         // Weight for the greatest improvement.
                         fit_error_dst_prev.max(fit_error_dst_next),
                         KnotCornerState {

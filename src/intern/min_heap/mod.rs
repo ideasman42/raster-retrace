@@ -16,6 +16,10 @@
 ///
 /// Methods:
 /// - heap.insert(sort_value, user_data) -> handle
+/// - heap.insert_or_update(handle, sort_value, user_data)
+/// - heap.node_value_update(handle, sort_value) -> handle
+/// - heap.node_value_update_with_data(handle, sort_value, user_data) -> handle
+
 /// - heap.remove(handle)
 /// - heap.pop_min() -> Option(user_data)
 ///
@@ -65,7 +69,7 @@ pub struct MinHeap<TOrd: HeapKey, TVal: HeapValue> {
 
     /// Chain free nodes, where each nodes index points to the next free node
     /// terminating once an `INVALID` value is reached.
-    free: usize, 
+    free: usize,
 }
 
 fn bin_parent(i: usize) -> usize {
@@ -287,6 +291,16 @@ impl<TOrd: HeapKey, TVal: HeapValue> MinHeap<TOrd, TVal> {
         return Some((self.node[free_node].value, self.node_drop(free_node)));
     }
 
+    pub fn insert_or_update(
+        &mut self, nhandle_p: &mut NodeHandle, value: TOrd, user_data: TVal,
+    ) {
+        if nhandle_p.0 == INVALID {
+            *nhandle_p = self.insert(value, user_data)
+        } else {
+            self.node_value_update_with_data(*nhandle_p, value, user_data);
+        }
+    }
+
     pub fn remove(&mut self, nhandle: NodeHandle) {
         debug_assert!(self.tree_index.len() != 0);
         debug_assert!(nhandle.0 < self.node.len());
@@ -305,6 +319,33 @@ impl<TOrd: HeapKey, TVal: HeapValue> MinHeap<TOrd, TVal> {
         return self.tree_index.len() == 0;
     }
 
+    pub fn node_value_update(
+        &mut self, nhandle: NodeHandle, value: TOrd,
+    ) {
+        debug_assert!(self.tree_index.len() != 0);
+        debug_assert!(nhandle.0 < self.node.len());
+        let index;
+        {
+            let node = &mut self.node[nhandle.0];
+            if node.value == value {
+                return;
+            }
+            node.value = value;
+            index = node.index;
+        };
+        self.heap_up(index);
+        self.heap_down(index);
+    }
+
+    pub fn node_value_update_with_data(
+        &mut self, nhandle: NodeHandle, value: TOrd, user_data: TVal,
+    ) {
+        debug_assert!(self.tree_index.len() != 0);
+        debug_assert!(nhandle.0 < self.node.len());
+        self.node[nhandle.0].user_data = user_data;
+        self.node_value_update(nhandle, value);
+    }
+
     #[allow(dead_code)]
     pub fn node_value(
         &self, nhandle: NodeHandle,
@@ -312,7 +353,7 @@ impl<TOrd: HeapKey, TVal: HeapValue> MinHeap<TOrd, TVal> {
         return self.node[nhandle.0].value;
     }
     #[allow(dead_code)]
-    pub fn node_ptr(
+    pub fn node_data(
         &self, nhandle: NodeHandle,
     ) -> TVal {
         return self.node[nhandle.0].user_data;
