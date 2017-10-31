@@ -3,7 +3,7 @@
 ///
 /// Characteristics:
 ///
-/// - Uses {Key: Value}, where the key must support PartialOrd
+/// - Uses {value: user_data}, where the 'value' must support PartialOrd
 ///   for ordering in the heap.
 /// - Supported duplicate entries,
 ///   (Note that the order, while not *undefined* is determined by the binary tree structure).
@@ -50,7 +50,7 @@ pub struct Node<TOrd: HeapValue, TData: HeapData> {
     /// Value to order by.
     value: TOrd,
 
-    /// Value supplied by the API user.
+    /// Data supplied by the API user.
     user_data: TData,
 
     /// index into `MinHeap.tree_index`
@@ -151,13 +151,11 @@ impl<TOrd: HeapValue, TData: HeapData> MinHeap<TOrd, TData> {
         loop {
             let l = bin_left(i);
             let r = bin_right(i);
+            let mut smallest = i;
 
-            let mut smallest = if (l < size) && self.heap_compare(l, i) {
-                l
-            } else {
-                i
-            };
-
+            if (l < size) && self.heap_compare(l, smallest) {
+                smallest = l
+            }
             if (r < size) && self.heap_compare(r, smallest) {
                 smallest = r;
             }
