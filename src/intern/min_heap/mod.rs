@@ -40,18 +40,18 @@ impl NodeHandle {
     pub const INVALID: NodeHandle = NodeHandle(INVALID);
 }
 
-pub trait HeapKey: PartialOrd + Copy {}
-impl<TOrd> HeapKey for TOrd where TOrd: PartialOrd + Copy {}
+pub trait HeapValue: PartialOrd + Copy {}
+impl<TOrd> HeapValue for TOrd where TOrd: PartialOrd + Copy {}
 
-pub trait HeapValue: Copy {}
-impl<TVal> HeapValue for TVal where TVal: Copy {}
+pub trait HeapData: Copy {}
+impl<TData> HeapData for TData where TData: Copy {}
 
-pub struct Node<TOrd: HeapKey, TVal: HeapValue> {
+pub struct Node<TOrd: HeapValue, TData: HeapData> {
     /// Value to order by.
     value: TOrd,
 
     /// Value supplied by the API user.
-    user_data: TVal,
+    user_data: TData,
 
     /// index into `MinHeap.tree_index`
     ///
@@ -60,12 +60,12 @@ pub struct Node<TOrd: HeapKey, TVal: HeapValue> {
     index: usize,
 }
 
-pub struct MinHeap<TOrd: HeapKey, TVal: HeapValue> {
+pub struct MinHeap<TOrd: HeapValue, TData: HeapData> {
     /// Index into `node` array.
     tree_index: Vec<usize>,
 
     /// Node storage, unused nodes are referenced by `free`.
-    node: Vec<Node<TOrd, TVal>>,
+    node: Vec<Node<TOrd, TData>>,
 
     /// Chain free nodes, where each nodes index points to the next free node
     /// terminating once an `INVALID` value is reached.
@@ -84,14 +84,14 @@ fn bin_right(i: usize) -> usize {
 
 macro_rules! unlikely { ($body:expr) => { $body } }
 
-impl<TOrd: HeapKey, TVal: HeapValue> MinHeap<TOrd, TVal> {
+impl<TOrd: HeapValue, TData: HeapData> MinHeap<TOrd, TData> {
 
     // -------------------------------------------------------------------
     // Private API
     //
     fn node_compare(
-        a: &Node<TOrd, TVal>,
-        b: &Node<TOrd, TVal>,
+        a: &Node<TOrd, TData>,
+        b: &Node<TOrd, TData>,
     ) -> bool {
         (a.value < b.value)
     }
@@ -113,7 +113,7 @@ impl<TOrd: HeapKey, TVal: HeapValue> MinHeap<TOrd, TVal> {
     #[inline(always)]
     fn tree(
         &self, i: usize,
-    ) -> &Node<TOrd, TVal> {
+    ) -> &Node<TOrd, TData> {
         debug_assert!(i < self.tree_index.len());
         unsafe { self.node.get_unchecked(*self.tree_index.get_unchecked(i)) }
     }
@@ -121,7 +121,7 @@ impl<TOrd: HeapKey, TVal: HeapValue> MinHeap<TOrd, TVal> {
     #[inline(always)]
     fn tree_mut(
         &mut self, i: usize,
-    ) -> &mut Node<TOrd, TVal> {
+    ) -> &mut Node<TOrd, TData> {
         debug_assert!(i < self.tree_index.len());
         unsafe { self.node.get_unchecked_mut(*self.tree_index.get_unchecked(i)) }
     }
@@ -185,7 +185,7 @@ impl<TOrd: HeapKey, TVal: HeapValue> MinHeap<TOrd, TVal> {
 
     // Small take/drop API to reuse nodes.
     fn node_take(
-        &mut self, node_data: Node<TOrd, TVal>,
+        &mut self, node_data: Node<TOrd, TData>,
     ) -> NodeHandle {
         let nhandle;
         if unlikely!(self.free == INVALID) {
@@ -207,7 +207,7 @@ impl<TOrd: HeapKey, TVal: HeapValue> MinHeap<TOrd, TVal> {
 
     fn node_drop(
         &mut self, free_node: usize,
-    ) -> TVal {
+    ) -> TData {
         let node = &mut self.node[free_node];
         let user_data = node.user_data;
         node.index = self.free;
@@ -219,7 +219,7 @@ impl<TOrd: HeapKey, TVal: HeapValue> MinHeap<TOrd, TVal> {
     // Public API
     //
     pub fn insert(
-        &mut self, value: TOrd, user_data: TVal,
+        &mut self, value: TOrd, user_data: TData,
     ) -> NodeHandle {
         let tree_index = self.tree_index.len();
 
@@ -241,7 +241,7 @@ impl<TOrd: HeapKey, TVal: HeapValue> MinHeap<TOrd, TVal> {
 
     pub fn pop_min(
         &mut self,
-    ) -> Option<TVal> {
+    ) -> Option<TData> {
         if self.tree_index.len() == 0 {
             return None;
         }
@@ -266,7 +266,7 @@ impl<TOrd: HeapKey, TVal: HeapValue> MinHeap<TOrd, TVal> {
 
     pub fn pop_min_with_value(
         &mut self,
-    ) -> Option<(TOrd, TVal)> {
+    ) -> Option<(TOrd, TData)> {
         // copied from pop_min
         if unlikely!(self.tree_index.len() == 0) {
             return None;
@@ -292,7 +292,7 @@ impl<TOrd: HeapKey, TVal: HeapValue> MinHeap<TOrd, TVal> {
     }
 
     pub fn insert_or_update(
-        &mut self, nhandle_p: &mut NodeHandle, value: TOrd, user_data: TVal,
+        &mut self, nhandle_p: &mut NodeHandle, value: TOrd, user_data: TData,
     ) {
         if nhandle_p.0 == INVALID {
             *nhandle_p = self.insert(value, user_data)
@@ -338,7 +338,7 @@ impl<TOrd: HeapKey, TVal: HeapValue> MinHeap<TOrd, TVal> {
     }
 
     pub fn node_value_update_with_data(
-        &mut self, nhandle: NodeHandle, value: TOrd, user_data: TVal,
+        &mut self, nhandle: NodeHandle, value: TOrd, user_data: TData,
     ) {
         debug_assert!(self.tree_index.len() != 0);
         debug_assert!(nhandle.0 < self.node.len());
@@ -355,12 +355,12 @@ impl<TOrd: HeapKey, TVal: HeapValue> MinHeap<TOrd, TVal> {
     #[allow(dead_code)]
     pub fn node_data(
         &self, nhandle: NodeHandle,
-    ) -> TVal {
+    ) -> TData {
         return self.node[nhandle.0].user_data;
     }
 
     #[allow(dead_code)]
-    pub fn new() -> MinHeap<TOrd, TVal> {
+    pub fn new() -> MinHeap<TOrd, TData> {
         MinHeap {
             tree_index: vec![],
             node: vec![],
@@ -370,7 +370,7 @@ impl<TOrd: HeapKey, TVal: HeapValue> MinHeap<TOrd, TVal> {
 
     pub fn with_capacity(
         capacity: usize,
-    ) -> MinHeap<TOrd, TVal> {
+    ) -> MinHeap<TOrd, TData> {
         MinHeap {
             tree_index: Vec::with_capacity(capacity),
             node: Vec::with_capacity(capacity),
