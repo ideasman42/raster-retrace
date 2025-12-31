@@ -470,7 +470,7 @@ fn cubic_calc_speed(
     let mut v_out = [0.0; DIMS];
     for j in 0..DIMS {
         v_out[j] =  3.0 * ((p1[j] - p0[j]) * s * s + 2.0 *
-                           (p2[j] - p0[j]) * s * t +
+                           (p2[j] - p1[j]) * s * t +
                            (p3[j] - p2[j]) * t * t);
     }
     return v_out;
