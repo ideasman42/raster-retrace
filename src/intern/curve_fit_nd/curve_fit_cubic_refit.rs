@@ -167,18 +167,23 @@ fn knot_remove_error_value(
     );
 }
 
+/// Number of points from `index_l` to `index_r` inclusive, handling cyclic wrap.
+#[inline]
+fn knot_span_length(index_l: usize, index_r: usize, points_len: usize) -> usize {
+    (if index_l <= index_r {
+        index_r - index_l
+    } else {
+        (index_r + points_len) - index_l
+    }) + 1
+}
+
 pub fn knot_calc_curve_error_value_and_index(
     pd: &PointData,
     knot_l: &Knot, knot_r: &Knot,
     tan_l: &[f64; DIMS],
     tan_r: &[f64; DIMS],
 ) -> (f64, usize, [f64; 2]) {
-    let points_offset_len =
-        if knot_l.index < knot_r.index {
-            knot_r.index - knot_l.index
-        } else {
-            (knot_r.index + pd.points_len) - knot_l.index
-        } + 1;
+    let points_offset_len = knot_span_length(knot_l.index, knot_r.index, pd.points_len);
 
     if points_offset_len != 2 {
         let points_offset_end = knot_l.index + points_offset_len;
@@ -208,12 +213,7 @@ pub fn knot_calc_curve_error_value(
     tan_l: &[f64; DIMS],
     tan_r: &[f64; DIMS],
 ) -> (f64, [f64; 2]) {
-    let points_offset_len =
-        if knot_l.index < knot_r.index {
-            knot_r.index - knot_l.index
-        } else {
-            (knot_r.index + pd.points_len) - knot_l.index
-        } + 1;
+    let points_offset_len = knot_span_length(knot_l.index, knot_r.index, pd.points_len);
 
     if points_offset_len != 2 {
         let points_offset_end = knot_l.index + points_offset_len;
@@ -242,12 +242,12 @@ pub mod refine_remove {
     };
     use ::intern::min_heap;
 
-    // Store adjacent handles in the case this is removed
-    // could make this part of the knot array but its logically
-    // more clear whats going on if its kept separate.
+    // Store adjacent handles in the case this is removed.
+    // Could make this part of the knot array but it's logically
+    // more clear what's going on if it's kept separate.
     #[derive(Copy, Clone)]
     struct KnotRemoveState {
-        // handles for prev/next knots
+        // Handles for prev/next knots.
         index: usize,
         handles: [f64; 2],
     }
@@ -339,7 +339,7 @@ pub mod refine_remove {
             debug_assert!(error_sq <= error_max_sq);
 
             knots[k_prev_index].fit_error_sq_next = error_sq;
-            // Remove ourselves
+            // Remove ourselves.
             knots[k_next_index].prev = k_prev_index;
             knots[k_prev_index].next = k_next_index;
 
@@ -420,7 +420,7 @@ pub mod refine_refit {
                 // Always perform removal before refitting, (make a negative number)
                 heap.insert_or_update(
                     k_curr_heap_node,
-                    // Weight for the greatest improvement
+                    // Weight for the greatest improvement.
                     fit_error_max_sq - error_max_sq,
                     KnotRefitState {
                         index: k_curr.index,
@@ -627,7 +627,7 @@ pub mod refine_refit {
 
                 *knots_len_remaining -= 1;
             } else {
-                // Remove ourselves
+                // Remove ourselves.
                 knots[k_next_index].prev = r.index_refit;
                 knots[k_prev_index].next = r.index_refit;
 

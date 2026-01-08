@@ -292,6 +292,7 @@ mod cubic_solve_offset {
     use ::intern::math_vector::{
         sub_vnvn,
         dot_vnvn,
+        len_vnvn,
         madd_vnvn_fl, msub_vnvn_fl,
         negated_vn,
         normalized_vnvn,
@@ -310,6 +311,7 @@ mod cubic_solve_offset {
         let p0 = &points[0];
         let p3 = &points[points.len() - 1];
 
+        let dir_dist = len_vnvn(p0, p3);
         let dir_unit = normalized_vnvn(p3, p0);
         // note that normalizing output here is only for better accuracy, not essential.
         let a: [[f64; DIMS]; 2] = [
@@ -339,8 +341,14 @@ mod cubic_solve_offset {
         let alpha_l = (dists[0] / 0.75) / div_l;
         let alpha_r = (dists[1] / 0.75) / div_r;
 
+        // The 'dists[..] + dir_dist' limit is just a rough approximation.
+        // While a more exact value could be calculated,
+        // in this case the error values approach divide by zero (infinite)
+        // so there is no need to be too precise when checking if limits have been exceeded.
         if !(alpha_l >= 0.0) ||
-           !(alpha_r >= 0.0)
+           !(alpha_r >= 0.0) ||
+           (alpha_l > dists[0] + dir_dist) ||
+           (alpha_r > dists[1] + dir_dist)
         {
             return None;
         } else {
@@ -624,7 +632,7 @@ fn fit_cubic_to_points(
         let mut error_least_square;
 
         if let Some(cubic_test) = cubic_solve_least_square::calc(points, tan_l, tan_r, &u) {
-            // we want the result so we can refine it (even if its currently not the best)
+            // We want the result so we can refine it (even if it's currently not the best).
             error_least_square = cubic_test_error!(&cubic_test);
             cubic_least_square = cubic_test;
         } else {
