@@ -249,8 +249,8 @@ mod cubic_solve_circle {
         }
     }
 
-    // Calculate the scale the handles, which serves as a best-guess
-    // used as a fallback when the least-square solution fails.
+    // Calculate the scale of the handles, which serves as a best-guess
+    // used as a fallback when the least-squares solution fails.
     fn points_calc_cubic_scale(
         v_l: &[f64; DIMS],
         v_r: &[f64; DIMS],
@@ -390,7 +390,7 @@ fn cubic_reparameterize(
     debug_assert!(points.len() == u_prime_src.len());
     debug_assert!(points.len() == u_prime_dst.len());
 
-    // Recalculate the values of u[] based on the Newton Raphson method.
+    // Recalculate the values of u[] based on the Newton-Raphson method.
     for ((u_src, u_dst), pt) in u_prime_src.iter().zip(&mut *u_prime_dst).zip(points) {
         *u_dst = cubic_find_root(cubic, pt, *u_src);
         if !(*u_dst).is_finite() {
