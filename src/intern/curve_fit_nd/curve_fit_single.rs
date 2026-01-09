@@ -1,3 +1,19 @@
+///
+/// Curve Fitting - Single Segment
+/// ===============================
+///
+/// This module fits a single cubic bezier curve to a set of points.
+///
+/// It implements multiple fitting strategies and selects the best result:
+/// - Fallback: Simple 1/3 endpoint distance handles (baseline)
+/// - Circular: Arc-based approximation for curved segments
+/// - Offset: Perpendicular distance method for symmetric curves
+/// - Least-squares: Optimal Bernstein polynomial fitting
+///
+/// The least-squares solution uses Newton-Raphson iteration to refine
+/// the parameterization, and applies handle clamping to prevent
+/// extreme control point positions.
+///
 
 use ::intern::math_vector::{
     len_squared_vnvn,
@@ -7,22 +23,32 @@ use ::intern::math_vector::{
     sq,
 };
 
-// weak?
+/// Number of dimensions for curve fitting (2D points).
 const DIMS: usize = ::intern::math_vector::DIMS;
 
+/// Type definitions for curve fitting.
 mod types {
     use super::{
         DIMS,
     };
+
+    /// A cubic bezier curve defined by four control points.
     #[derive(Copy, Clone)]
     pub struct Cubic {
+        /// Start point (on the curve).
         pub p0: [f64; DIMS],
+        /// First control point (handle from p0).
         pub p1: [f64; DIMS],
+        /// Second control point (handle from p3).
         pub p2: [f64; DIMS],
+        /// End point (on the curve).
         pub p3: [f64; DIMS],
     }
 }
 
+/// Simple fallback solver: calculates handles based on 1/3 of endpoint distance.
+///
+/// This is used as a baseline when more sophisticated methods fail.
 mod cubic_solve_fallback {
     use super::{
         types,
@@ -33,6 +59,7 @@ mod cubic_solve_fallback {
         madd_vnvn_fl, msub_vnvn_fl,
     };
 
+    /// Calculate a fallback cubic using 1/3 of the endpoint distance for handles.
     pub fn calc(
         points: &[[f64; DIMS]],
         tan_l: &[f64; DIMS],
@@ -51,6 +78,11 @@ mod cubic_solve_fallback {
     }
 }
 
+/// Least-squares solver using Bernstein polynomial coefficients.
+///
+/// This method finds optimal handle lengths by minimizing the sum of squared
+/// distances from points to the curve. Returns None if the solution is invalid
+/// (negative alpha values or numerical instability).
 mod cubic_solve_least_square {
     use super::{
         types,
@@ -62,7 +94,10 @@ mod cubic_solve_least_square {
         is_almost_zero,
     };
 
-
+    /// Calculate optimal handle lengths using least-squares fitting.
+    ///
+    /// Returns None if the solution produces invalid (negative) alpha values
+    /// or if numerical instability is detected (near-zero determinant).
     pub fn calc(
         points: &[[f64; DIMS]],
         tan_l: &[f64; DIMS],
@@ -128,7 +163,7 @@ mod cubic_solve_least_square {
         }
     }
 
-    // Bezier multipliers
+    /// Bernstein polynomial computations for bezier curve evaluation.
     mod bezier {
         /// Compute all four Bernstein polynomial values with shared intermediate calculations.
         /// Avoids redundant computation of (1-u), u^2, etc. when all four values are needed.
@@ -150,6 +185,12 @@ mod cubic_solve_least_square {
 
 }
 
+/// Circular arc fallback solver.
+///
+/// Takes curvature into account when calculating handle lengths.
+/// Works by placing endpoints on an imaginary circle based on tangent vectors,
+/// then scaling handles based on the arc length vs chord length ratio.
+/// Useful when points lie on an arc-like curve.
 mod cubic_solve_circle {
     use super::{
         types,
@@ -162,6 +203,7 @@ mod cubic_solve_circle {
         madd_vnvn_fl, msub_vnvn_fl,
     };
 
+    /// Calculate a cubic curve using circular arc approximation.
     pub fn calc(
         points: &[[f64; DIMS]],
         tan_l: &[f64; DIMS],
@@ -196,14 +238,13 @@ mod cubic_solve_circle {
     }
 
 
-    // Return a scale value, used to calculate how much the curve handles should be increased,
-    //
-    // This works by placing each end-point on an imaginary circle,
-    // the placement on the circle is based on the tangent vectors,
-    // where larger differences in tangent angle cover a larger part of the circle.
-    //
-    // Return the scale representing how much larger the distance around the circle is.
-
+    /// Return a scale value based on circular arc approximation.
+    ///
+    /// This works by placing each end-point on an imaginary circle,
+    /// the placement on the circle is based on the tangent vectors,
+    /// where larger differences in tangent angle cover a larger part of the circle.
+    ///
+    /// Returns the scale representing how much larger the distance around the circle is.
     fn points_calc_circumference_factor(
         tan_l: &[f64; DIMS],
         tan_r: &[f64; DIMS],
@@ -232,10 +273,9 @@ mod cubic_solve_circle {
         }
     }
 
-    // Return the value which the distance between points will need to be scaled by,
-    // to define a handle, given both points are on a perfect circle.
-    //
-    // Note: the return value will need to be multiplied by 1.3... for correct results.
+    /// Return the handle scale factor for points on a perfect circle.
+    ///
+    /// Note: the return value will need to be multiplied by 1.3... for correct results.
     fn points_calc_circle_tangent_factor(
         tan_l: &[f64; DIMS],
         tan_r: &[f64; DIMS],
@@ -259,8 +299,9 @@ mod cubic_solve_circle {
         }
     }
 
-    // Calculate the scale of the handles, which serves as a best-guess
-    // used as a fallback when the least-squares solution fails.
+    /// Calculate the handle scale using circular arc approximation.
+    ///
+    /// Serves as a best-guess fallback when the least-squares solution fails.
     fn points_calc_cubic_scale(
         v_l: &[f64; DIMS],
         v_r: &[f64; DIMS],
@@ -294,6 +335,11 @@ mod cubic_solve_circle {
     }
 }
 
+/// Offset-based fallback solver.
+///
+/// Uses the maximum perpendicular distance of points from the chord (line between
+/// endpoints) to calculate handle lengths. Can do a 'perfect' reversal of subdivision
+/// when the curve has symmetrical handles and doesn't change direction (as with an 'S' shape).
 mod cubic_solve_offset {
     use super::{
         types,
@@ -311,6 +357,10 @@ mod cubic_solve_offset {
         project_vnvn_normalized,
     };
 
+    /// Calculate a cubic using perpendicular distance from the chord.
+    ///
+    /// Uses the maximum perpendicular distance of points from the line
+    /// between endpoints to determine handle lengths.
     pub fn calc(
         points: &[[f64; DIMS]],
         tan_l: &[f64; DIMS],
@@ -395,6 +445,10 @@ fn cubic_find_root(
 }
 
 /// Given set of points and their parameterization, try to find a better parameterization.
+///
+/// Uses Newton-Raphson iteration on each point to find parameter values that
+/// minimize distance to the curve. Returns false if the reparameterization
+/// produces invalid values (non-finite, out of [0,1] range, or unsorted).
 fn cubic_reparameterize(
     cubic: &types::Cubic,
     points: &[[f64; DIMS]],
@@ -427,6 +481,11 @@ fn cubic_reparameterize(
     return true;
 }
 
+/// Calculate normalized arc-length parameterization for points.
+///
+/// Returns a tuple of (u, total_length) where:
+/// - `u` is a vector of parameter values in [0, 1] for each point
+/// - `total_length` is the total arc length of the polyline
 fn points_calc_coord_length(
     points: &[[f64; DIMS]],
     points_length_cache: &[f64],
@@ -456,6 +515,7 @@ fn points_calc_coord_length(
     return (u, w);
 }
 
+/// Evaluate the cubic bezier curve at parameter t using de Casteljau's algorithm.
 fn cubic_calc_point(
     cubic: &types::Cubic, t: f64,
 ) -> [f64; DIMS] {
@@ -475,6 +535,7 @@ fn cubic_calc_point(
     return v_out;
 }
 
+/// Calculate the first derivative (velocity/speed) of the cubic bezier at parameter t.
 fn cubic_calc_speed(
     cubic: &types::Cubic, t: f64,
 ) -> [f64; DIMS] {
@@ -492,6 +553,7 @@ fn cubic_calc_speed(
     return v_out;
 }
 
+/// Calculate the second derivative (acceleration) of the cubic bezier at parameter t.
 fn cubic_calc_acceleration(
     cubic: &types::Cubic, t: f64,
 ) -> [f64; DIMS] {
@@ -552,12 +614,20 @@ fn cubic_calc_point_speed_accel(
     (r_point, r_speed, r_accel)
 }
 
+/// Error metrics from fitting a cubic to a set of points.
 #[derive(Clone, Copy)]
 struct FitError {
+    /// Maximum squared distance from any point to the fitted curve.
     pub max_sq: f64,
+    /// Index of the point with maximum error (potential split point).
     pub index: usize,
 }
 
+/// Returns a 'measure' of the maximum distance (squared) of the points
+/// from the corresponding cubic(u[]) points.
+///
+/// Returns the maximum squared error and the index of the point with that error.
+/// The index can be used as a split point if the error exceeds the threshold.
 fn cubic_calc_error(
     cubic: &types::Cubic,
     points: &[[f64; DIMS]],
@@ -565,7 +635,7 @@ fn cubic_calc_error(
 ) -> FitError {
     let mut error_max_sq = -1.0;
 
-    // no need to measure first & last points
+    // No need to measure first & last points (they are on the curve by construction).
     let skip_endpoints = 1..(points.len() - 1);
     let mut index = 1;
     let mut error_index = 1;
@@ -628,7 +698,11 @@ fn cubic_calc_error_limit(
     });
 }
 
-/// Calculate a center that compensates for point spacing.
+/// Calculate a weighted center that compensates for non-uniform point spacing.
+///
+/// Each point is weighted by the sum of distances to its neighbors,
+/// giving more influence to points in sparse regions. This provides
+/// a more representative center for handle clamping calculations.
 fn points_calc_center_weighted(
     points: &[[f64; DIMS]],
 ) -> [f64; DIMS] {
@@ -728,12 +802,28 @@ fn cubic_apply_handle_clamping(
     }
 }
 
+/// Attempt to fit a cubic bezier curve to a set of points.
+///
+/// This function tries multiple fitting methods and returns the best result:
+///
+/// 1. **Fallback**: Simple handle calculation based on endpoint distance (always computed as baseline).
+/// 2. **Circular**: Uses curvature-based calculation when points lie on an arc-like curve.
+/// 3. **Offset**: Uses maximum perpendicular distance from the chord to calculate handles.
+///    Works well for symmetric curves and 'S' shapes.
+/// 4. **Least-squares**: Optimal fit using Bernstein polynomial coefficients.
+///    Subject to handle clamping to prevent extreme values.
+///
+/// After finding an initial least-squares solution, Newton-Raphson iteration is used
+/// to refine the parameterization (up to `iteration_max` times) for better results.
+///
+/// Returns the cubic with the lowest maximum squared error, along with the error info.
 fn fit_cubic_to_points(
     points: &[[f64; DIMS]],
     points_length_cache: &[f64],
     tan_l: &[f64; DIMS],
     tan_r: &[f64; DIMS],
 ) -> (types::Cubic, FitError) {
+    // Maximum Newton-Raphson iterations for parameter refinement.
     let iteration_max = 4;
 
     assert!(points.len() > 2);
@@ -833,9 +923,12 @@ fn fit_cubic_to_points(
     return (cubic_best, error_best);
 }
 
-//
-// Return error squared, and both handle locations
-//
+/// Fit a cubic bezier curve to a set of points.
+///
+/// Returns ((error_sq, split_index), handle_left, handle_right) where:
+/// - `error_sq` is the maximum squared error from any point to the curve
+/// - `split_index` is the index of the point with maximum error
+/// - `handle_left` and `handle_right` are the bezier control points (p1, p2)
 pub fn curve_fit_cubic_to_points_single(
     points: &[[f64; DIMS]],
     points_length_cache: &[f64],

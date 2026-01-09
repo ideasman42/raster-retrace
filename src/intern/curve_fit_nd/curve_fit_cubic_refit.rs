@@ -1,9 +1,25 @@
-
 ///
-/// Curve refinement modules for incremental simplification
+/// Curve Re-fitting Method
+/// =======================
 ///
-/// This module contains the refinement algorithms used to optimize
-/// curve fitting by removing, refitting, and detecting corners.
+/// This is a more processor-intensive method of fitting compared to
+/// direct curve fitting, and works as follows:
+///
+/// - First iteratively remove all points under the error threshold.
+///
+/// - If corner calculation is enabled:
+///   - Find adjacent knots that exceed the angle limit.
+///   - Collapse the knots into one, or remove entirely
+///     (depending on their error values).
+///
+/// - Run a re-fit pass, where knots are re-positioned between their adjacent knots
+///   when their re-fit position has a lower 'error'.
+///   While re-fitting, remove knots that fall below the error threshold.
+///
+/// This module contains three refinement algorithms:
+/// - `refine_remove`: Incremental point removal based on error threshold
+/// - `refine_refit`: Re-positioning knots to minimize error
+/// - `refine_corner`: Corner detection and collapse
 ///
 
 use ::intern::math_vector::{
@@ -16,15 +32,25 @@ use ::intern::math_vector::{
 
 use super::curve_fit_single;
 
+/// Number of dimensions for curve fitting (2D points).
 const DIMS: usize = ::intern::math_vector::DIMS;
 
+/// Sentinel value representing an invalid index (used for prev/next in non-cyclic curves).
 pub const INVALID: usize = ::std::usize::MAX;
 
+/// Type definitions for curve refinement.
 pub mod types {
     use super::DIMS;
 
+    /// A knot in the curve fitting linked list.
+    ///
+    /// Knots form a doubly-linked list where each knot represents a control point
+    /// in the simplified curve. During refinement, knots can be removed, repositioned,
+    /// or marked as corners.
     pub struct Knot {
+        /// Index of next knot in the linked list (INVALID if none).
         pub next: usize,
+        /// Index of previous knot in the linked list (INVALID if none).
         pub prev: usize,
 
         /// The index of this knot in the point array.
@@ -33,10 +59,18 @@ pub mod types {
         /// since we may want to support different point/knot indices
         pub index: usize,
 
+        /// If true, this knot cannot be removed (e.g., endpoints of non-cyclic curves).
         pub no_remove: bool,
+        /// If true, this knot has been removed from the active list.
         pub is_remove: bool,
+        /// If true, this knot is a corner (tangents are not continuous).
         pub is_corner: bool,
 
+        /// Handle lengths [left, right] for the bezier curves meeting at this knot.
+        ///
+        /// These are signed values: positive extends in the tangent direction,
+        /// negative extends opposite. Used to compute control points as:
+        /// `control_point = knot_position + tangent * handle_length`
         pub handles: [f64; 2],
 
         /// Store the error value, to see if we can improve on it
@@ -45,28 +79,43 @@ pub mod types {
         /// This is the error between this knot and the next.
         pub fit_error_sq_next: f64,
 
-        /// Initially point to contiguous memory, however we may re-assign.
+        /// Indices into the tangent array [incoming, outgoing].
+        ///
+        /// Initially these point to contiguous memory (knot_index * 2),
+        /// but may be reassigned when corners are created.
         pub tan: [usize; 2],
     }
 
+    /// Immutable point data used during curve refinement.
+    ///
+    /// Contains references to the original points, cached segment lengths,
+    /// and tangent vectors. For cyclic curves, the arrays may be doubled
+    /// to allow extracting contiguous slices across the start/end boundary.
     pub struct PointData<'a> {
-        /// note, can't use points.len(),
-        /// since this may be doubled for cyclic curves
+        /// The input points (may be doubled for cyclic curves).
+        /// Note: can't use points.len() directly since this may be doubled.
         pub points: &'a Vec<[f64; DIMS]>,
+        /// The actual number of unique points.
         pub points_len: usize,
 
-        /// This array may be doubled as well.
+        /// Cached segment lengths between consecutive points.
+        /// This array may be doubled as well for cyclic curves.
         pub points_length_cache: &'a Vec<f64>,
 
+        /// Tangent vectors at each knot (2 per knot: incoming and outgoing).
         pub tangents: &'a Vec<[f64; DIMS]>,
     }
 
     /// Handle lengths and error for the 2 segments between 3 knots.
     #[derive(Copy, Clone)]
     pub struct KnotAdjacentParams {
+        /// Handle lengths [left, right] for the segment before this knot.
         pub handles_prev: [f64; 2],
+        /// Handle lengths [left, right] for the segment after this knot.
         pub handles_next: [f64; 2],
+        /// Squared error for the segment before this knot.
         pub error_sq_prev: f64,
+        /// Squared error for the segment after this knot.
         pub error_sq_next: f64,
     }
 }
@@ -88,8 +137,11 @@ fn knot_step_next_wrap(k_step: &mut usize, knots_end: usize) {
     }
 }
 
-/// Find the knot furthest from the line between knot_l & knot_r.
-/// This is to be used as a split point.
+/// Find the knot furthest from the line between `k_prev` and `k_next`.
+///
+/// This is used to find a good split point when a curve segment
+/// exceeds the error threshold. The point with maximum perpendicular
+/// distance from the chord is chosen as the split point.
 pub fn knot_find_split_point(
     pd: &PointData,
     knots: &Vec<Knot>,
@@ -126,8 +178,11 @@ pub fn knot_find_split_point(
     return split_point;
 }
 
-/// Find the knot furthest from the line between knot_l & knot_r on a given axis.
-/// This is to be used as a split point.
+/// Find the knot furthest from the line between `k_prev` and `k_next` along a given axis.
+///
+/// Similar to `knot_find_split_point`, but projects points onto the given
+/// plane normal instead of perpendicular to the chord. Used for corner
+/// detection to find split points that best separate angled segments.
 pub fn knot_find_split_point_on_axis(
     pd: &PointData,
     knots: &Vec<Knot>,
@@ -159,6 +214,9 @@ pub fn knot_find_split_point_on_axis(
 }
 
 
+/// Fit a curve segment and return error metrics.
+///
+/// Returns (error_sq, error_index, [handle_left, handle_right]).
 fn knot_remove_error_value(
     tan_l: &[f64; DIMS],
     tan_r: &[f64; DIMS],
@@ -177,7 +235,9 @@ fn knot_remove_error_value(
     );
 }
 
-/// Number of points from `index_l` to `index_r` inclusive, handling cyclic wrap.
+/// Calculate the number of points from `index_l` to `index_r` inclusive.
+///
+/// Handles cyclic wrap-around when `index_l > index_r`.
 #[inline]
 fn knot_span_length(index_l: usize, index_r: usize, points_len: usize) -> usize {
     (if index_l <= index_r {
@@ -187,6 +247,10 @@ fn knot_span_length(index_l: usize, index_r: usize, points_len: usize) -> usize 
     }) + 1
 }
 
+/// Calculate the curve fit error between two knots, including the error index.
+///
+/// Returns (error_sq, error_index, [handle_left, handle_right]).
+/// The error_index is the global index of the point with maximum error.
 pub fn knot_calc_curve_error_value_and_index(
     pd: &PointData,
     knot_l: &Knot, knot_r: &Knot,
@@ -217,6 +281,9 @@ pub fn knot_calc_curve_error_value_and_index(
     }
 }
 
+/// Calculate the curve fit error between two knots (without error index).
+///
+/// Returns (error_sq, [handle_left, handle_right]).
 pub fn knot_calc_curve_error_value(
     pd: &PointData,
     knot_l: &Knot, knot_r: &Knot,
@@ -243,6 +310,7 @@ pub fn knot_calc_curve_error_value(
 
 macro_rules! unlikely { ($body:expr) => { $body } }
 
+/// First refinement pass: iteratively remove knots below the error threshold.
 pub mod refine_remove {
     use super::{
         INVALID,
@@ -252,16 +320,22 @@ pub mod refine_remove {
     };
     use ::intern::min_heap;
 
-    // Store adjacent handles in the case this is removed.
-    // Could make this part of the knot array but it's logically
-    // more clear what's going on if it's kept separate.
+    /// State stored in the heap for potential knot removal.
+    ///
+    /// Stores the handle lengths that would result from removing this knot.
     #[derive(Copy, Clone)]
     struct KnotRemoveState {
-        // Handles for prev/next knots.
+        /// Index of the knot being considered for removal.
         index: usize,
+        /// Handle lengths if this knot is removed.
         handles: [f64; 2],
     }
 
+    /// (Re)calculate the error for removing a knot and update the heap.
+    ///
+    /// Tests the error that would result from removing k_curr and fitting
+    /// a single curve from k_prev to k_next. Updates the heap if the error
+    /// is below the threshold.
     fn knot_remove_error_recalculate(
         pd: &PointData,
         heap: &mut min_heap::MinHeap<f64, KnotRemoveState>,
@@ -300,6 +374,13 @@ pub mod refine_remove {
         }
     }
 
+    /// Iteratively remove all points under the error threshold.
+    ///
+    /// Uses a min-heap to efficiently find and remove the knot with the
+    /// smallest error value. After each removal, the error values of
+    /// adjacent knots are recalculated and the heap is updated.
+    ///
+    /// This is the first pass of the curve refinement algorithm.
     pub fn curve_incremental_simplify(
         pd: &PointData,
         knots: &mut Vec<Knot>,
@@ -374,6 +455,10 @@ pub mod refine_remove {
 // end refine_remove
 
 
+/// Second refinement pass: reposition knots to minimize error.
+///
+/// Tests moving each knot to positions between its neighbors to find
+/// optimal placement. Knots may also be removed if they fall below threshold.
 pub mod refine_refit {
 
     use super::{
@@ -389,8 +474,11 @@ pub mod refine_refit {
 
     /// Result from refining a refit index in one direction.
     struct RefineResult {
+        /// The best refit index found during the search.
         index_refit: usize,
+        /// Handle lengths and errors for the refit position.
         params: KnotAdjacentParams,
+        /// True if an improvement was found over the initial position.
         is_refined: bool,
     }
 
@@ -459,14 +547,25 @@ pub mod refine_refit {
         return result;
     }
 
+    /// State stored in the heap for potential knot repositioning.
     #[derive(Copy, Clone)]
     struct KnotRefitState {
+        /// Index of the knot being considered for refit.
         index: usize,
-        /// When INVALID - remove this item.
+        /// Target position index for refitting. When INVALID, remove this knot instead.
         index_refit: usize,
+        /// Handle lengths and errors for the refit position.
         fit_params: KnotAdjacentParams,
     }
 
+    /// (Re)calculate the error and optimal refit position for a knot.
+    ///
+    /// This function finds the best position for `k_curr` between its neighbors
+    /// `k_prev` and `k_next`. It tests potential positions and calculates the
+    /// resulting curve fit error for each.
+    ///
+    /// When `use_optimize_exhaustive` is true, all positions between neighbors
+    /// are tested. Otherwise, a faster heuristic based on the split point is used.
     fn knot_refit_error_recalculate(
         pd: &PointData,
         heap: &mut min_heap::MinHeap<f64, KnotRefitState>,
@@ -536,7 +635,8 @@ pub mod refine_refit {
         let cost_sq_src_max = k_prev.fit_error_sq_next.max(k_curr.fit_error_sq_next);
         debug_assert!(cost_sq_src_max <= error_max_sq);
 
-        // Specialized function to avoid duplicate code
+        /// Calculate curve errors for both segments around a refit position.
+        /// Returns None if either segment exceeds the error threshold.
         fn knot_calc_curve_error_value_pair_above_error_or_none(
             pd: &PointData, k_prev: &Knot, k_refit: &Knot, k_next: &Knot, error_max_sq: f64,
         ) -> Option<([f64; 2], f64, [f64; 2], f64)> {
@@ -689,6 +789,16 @@ pub mod refine_refit {
         }
     }
 
+    /// Re-adjust the curves by re-fitting points.
+    ///
+    /// Test the error from moving each knot to positions between its adjacent knots.
+    /// If a better position is found (lower error), the knot is moved there.
+    ///
+    /// Parameters:
+    /// - `use_optimize_exhaustive`: When true, search all positions between adjacent knots
+    ///   for the optimal refit location. When false, use a faster heuristic.
+    /// - `use_refit_remove`: When true, remove knots that fall below the error threshold
+    ///   during the refit process.
     pub fn curve_incremental_simplify_refit(
         pd: &PointData,
         knots: &mut Vec<Knot>,
@@ -793,6 +903,10 @@ pub mod refine_refit {
 }
 // end refine_refit
 
+/// Corner detection pass: identify and collapse sharp angle transitions.
+///
+/// Finds adjacent knots where the tangent angle exceeds the threshold and
+/// collapses them into corner knots (where tangents are discontinuous).
 pub mod refine_corner {
     use super::{
         INVALID,
@@ -813,9 +927,11 @@ pub mod refine_corner {
     /// Result of collapsing a corner.
     #[derive(Copy, Clone)]
     struct KnotCornerState {
+        /// Index of the knot being considered for corner collapse.
         index: usize,
         /// Merge adjacent handles into this one (may be shared with the 'index').
         index_pair: [usize; 2],
+        /// Handle lengths and errors for the collapsed corner.
         fit_params: KnotAdjacentParams,
     }
 
@@ -880,8 +996,20 @@ pub mod refine_corner {
         }
     }
 
-    // Attempt to collapse close knots into corners,
-    // as long as they fall below the error threshold.
+    /// Attempt to collapse close knots into corners.
+    ///
+    /// This function finds adjacent knots that exceed the angle limit and
+    /// collapses them into a single corner knot, or removes them entirely
+    /// (depending on their error values).
+    ///
+    /// A corner is created when two adjacent curve segments meet at a sharp angle.
+    /// The knot at this junction is marked as a corner, which prevents its
+    /// tangent from being shared between the two segments.
+    ///
+    /// Parameters:
+    /// - `error_max_sq`: Maximum allowed squared error for the curve.
+    /// - `error_sq_collapse_max`: Maximum squared error for collapsing adjacent knots.
+    /// - `corner_angle`: Angle threshold (in radians) above which knots become corners.
     pub fn curve_incremental_simplify_corners(
         pd: &PointData,
         knots: &mut Vec<Knot>,
