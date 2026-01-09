@@ -18,15 +18,15 @@ pub fn extract_centerline(
 {
 
     mod dir {
-        pub const L: u8 = (1 << 0);
-        pub const R: u8 = (1 << 1);
-        pub const D: u8 = (1 << 2);
-        pub const U: u8 = (1 << 3);
+        pub const L: u8 = 1 << 0;
+        pub const R: u8 = 1 << 1;
+        pub const D: u8 = 1 << 2;
+        pub const U: u8 = 1 << 3;
 
-        pub const LD: u8 = (1 << 4);
-        pub const LU: u8 = (1 << 5);
-        pub const RD: u8 = (1 << 6);
-        pub const RU: u8 = (1 << 7);
+        pub const LD: u8 = 1 << 4;
+        pub const LU: u8 = 1 << 5;
+        pub const RD: u8 = 1 << 6;
+        pub const RU: u8 = 1 << 7;
     }
 
     macro_rules! xy {
@@ -189,28 +189,26 @@ pub fn extract_centerline(
                         let xy_a = &poly[poly.len() - 2];
                         let xy_b = &poly[poly.len() - 1];
                         {
-                            (
-                                // axis aligned
-                                (x == xy_a[0] && x == xy_b[0]) ||
-                                (y == xy_a[1] && y == xy_b[1]) ||
-                                // diagonal
-                                {
-                                    let x_a_delta = xy_a[0] - xy_b[0];
-                                    let y_a_delta = xy_a[1] - xy_b[1];
-                                    let x_b_delta = xy_b[0] - x;
-                                    let y_b_delta = xy_b[1] - y;
+                            // axis aligned
+                            (x == xy_a[0] && x == xy_b[0]) ||
+                            (y == xy_a[1] && y == xy_b[1]) ||
+                            // diagonal
+                            {
+                                let x_a_delta = xy_a[0] - xy_b[0];
+                                let y_a_delta = xy_a[1] - xy_b[1];
+                                let x_b_delta = xy_b[0] - x;
+                                let y_b_delta = xy_b[1] - y;
 
-                                    (x_a_delta != 0 && y_a_delta != 0 &&
-                                     // no need to check 'b', signum accounts for that case.
+                                x_a_delta != 0 && y_a_delta != 0 &&
+                                // no need to check 'b', signum accounts for that case.
 
-                                     x_a_delta.abs() == y_a_delta.abs() &&
-                                     x_b_delta.abs() == y_b_delta.abs() &&
+                                x_a_delta.abs() == y_a_delta.abs() &&
+                                x_b_delta.abs() == y_b_delta.abs() &&
 
 
-                                     x_a_delta.signum() == x_b_delta.signum() &&
-                                     y_a_delta.signum() == y_b_delta.signum())
-                                }
-                             )
+                                x_a_delta.signum() == x_b_delta.signum() &&
+                                y_a_delta.signum() == y_b_delta.signum()
+                            }
                         }
                    }
                 {

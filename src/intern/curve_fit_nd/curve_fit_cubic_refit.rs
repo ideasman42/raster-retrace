@@ -714,7 +714,7 @@ pub mod refine_refit {
             // Local refinement: search neighbors for a better refit index.
             // Search both directions independently to avoid bias.
             // Skip when error is zero (e.g. exactly straight lines).
-            if let Some((handles_prev, fit_error_dst_prev, handles_next, fit_error_dst_next)) =
+            if let Some((_handles_prev, fit_error_dst_prev, _handles_next, fit_error_dst_next)) =
                 refit_result_or_none
             {
                 let cost_sq_dst_max_init = fit_error_dst_prev.max(fit_error_dst_next);

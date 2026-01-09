@@ -12,9 +12,11 @@ mod curve_fit_single;
 mod curve_fit_cubic_refit;
 
 /// Re-export math_vector for external access to vector operations.
+#[allow(unused_imports)]
 pub use ::intern::math_vector;
 
 /// Public API for polygon-to-curve fitting.
+#[allow(unused_imports)]
 pub use self::curve_fit_from_polys::{
     TraceMode,
     fit_poly_single,
@@ -22,6 +24,7 @@ pub use self::curve_fit_from_polys::{
 };
 
 /// Re-export refinement types for external use.
+#[allow(unused_imports)]
 pub use self::curve_fit_cubic_refit::{
     Knot,
     PointData,

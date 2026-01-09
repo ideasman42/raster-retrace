@@ -536,6 +536,7 @@ fn cubic_calc_point(
 }
 
 /// Calculate the first derivative (velocity/speed) of the cubic bezier at parameter t.
+#[allow(dead_code)]
 fn cubic_calc_speed(
     cubic: &types::Cubic, t: f64,
 ) -> [f64; DIMS] {
@@ -554,6 +555,7 @@ fn cubic_calc_speed(
 }
 
 /// Calculate the second derivative (acceleration) of the cubic bezier at parameter t.
+#[allow(dead_code)]
 fn cubic_calc_acceleration(
     cubic: &types::Cubic, t: f64,
 ) -> [f64; DIMS] {
@@ -726,7 +728,10 @@ fn points_calc_center_weighted(
         }
 
         w_prev = w_next;
-        pt_prev = pt_curr;
+        #[allow(unused_assignments)]
+        {
+            pt_prev = pt_curr;
+        }
         pt_curr = pt_next;
     }
 

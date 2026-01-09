@@ -215,32 +215,32 @@ fn is_euler_invariant(neighbors: u32) -> bool {
 
 fn index_quadrant_ne(neighbors: u32) -> u8 {
     return
-        if neighbors & DIR_S != 0 { (1 << 4) } else { 0 } |
-        if neighbors & DIR_E != 0 { (1 << 1) } else { 0 } |
+        if neighbors & DIR_S != 0 { 1 << 4 } else { 0 } |
+        if neighbors & DIR_E != 0 { 1 << 1 } else { 0 } |
         (1 << 0)
     ;
 }
 
 fn index_quadrant_nw(neighbors: u32) -> u8 {
     return
-        if neighbors & DIR_W != 0 { (1 << 4) } else { 0 } |
-        if neighbors & DIR_S != 0 { (1 << 2) } else { 0 } |
+        if neighbors & DIR_W != 0 { 1 << 4 } else { 0 } |
+        if neighbors & DIR_S != 0 { 1 << 2 } else { 0 } |
         (1 << 0)
     ;
 }
 
 fn index_quadrant_se(neighbors: u32) -> u8 {
     return
-        if neighbors & DIR_N != 0 { (1 << 4) } else { 0 } |
-        if neighbors & DIR_E != 0 { (1 << 1) } else { 0 } |
+        if neighbors & DIR_N != 0 { 1 << 4 } else { 0 } |
+        if neighbors & DIR_E != 0 { 1 << 1 } else { 0 } |
         (1 << 0)
     ;
 }
 
 fn index_quadrant_sw(neighbors: u32) -> u8 {
     return
-        if neighbors & DIR_N != 0 { (1 << 4) } else { 0 } |
-        if neighbors & DIR_W != 0 { (1 << 2) } else { 0 } |
+        if neighbors & DIR_N != 0 { 1 << 4 } else { 0 } |
+        if neighbors & DIR_W != 0 { 1 << 2 } else { 0 } |
         (1 << 0)
     ;
 }

@@ -73,13 +73,13 @@ pub struct MinHeap<TOrd: HeapValue, TData: HeapData> {
 }
 
 fn bin_parent(i: usize) -> usize {
-    ((i - 1) >> 1)
+    (i - 1) >> 1
 }
 fn bin_left(i: usize) -> usize {
-    ((i << 1) + 1)
+    (i << 1) + 1
 }
 fn bin_right(i: usize) -> usize {
-    ((i << 1) + 2)
+    (i << 1) + 2
 }
 
 macro_rules! unlikely { ($body:expr) => { $body } }
@@ -93,7 +93,7 @@ impl<TOrd: HeapValue, TData: HeapData> MinHeap<TOrd, TData> {
         a: &Node<TOrd, TData>,
         b: &Node<TOrd, TData>,
     ) -> bool {
-        (a.value < b.value)
+        a.value < b.value
     }
 
     // Debug only, does full search on data!

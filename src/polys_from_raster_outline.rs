@@ -42,10 +42,10 @@ pub fn extract_outline(
     use_simplify: bool,
 ) -> LinkedList<(bool, Vec<[i32; DIMS]>)> {
     mod dir {
-        pub const L: u8 = (1 << 0);
-        pub const R: u8 = (1 << 1);
-        pub const D: u8 = (1 << 2);
-        pub const U: u8 = (1 << 3);
+        pub const L: u8 = 1 << 0;
+        pub const R: u8 = 1 << 1;
+        pub const D: u8 = 1 << 2;
+        pub const U: u8 = 1 << 3;
     }
 
     let psize: [usize; 2] = [size[0] + 1, size[1] + 1];
@@ -146,8 +146,8 @@ pub fn extract_outline(
                         let xy_a = &poly[poly.len() - 2];
                         let xy_b = &poly[poly.len() - 1];
                         {
-                            ((x == xy_a[0] && x == xy_b[0]) ||
-                             (y == xy_a[1] && y == xy_b[1]))
+                            (x == xy_a[0] && x == xy_b[0]) ||
+                            (y == xy_a[1] && y == xy_b[1])
                         }
                    }
                 {

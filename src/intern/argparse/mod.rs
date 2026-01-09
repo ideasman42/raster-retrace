@@ -2,8 +2,8 @@
 // Mini module that works similar:
 // https://docs.python.org/3/library/argparse.html
 
-pub const ARGDEF_REQUIRED: u32 = (1 << 0);
-pub const ARGDEF_VARARGS: u32 =  (1 << 1);
+pub const ARGDEF_REQUIRED: u32 = 1 << 0;
+pub const ARGDEF_VARARGS: u32 = 1 << 1;
 
 pub const ARGDEF_DEFAULT: u32 = 0;
 
@@ -26,7 +26,7 @@ struct ArgumentDef<T> {
     id_long: &'static str,
     metavar: &'static str,
     descr: &'static str,
-    callback: Box<FnMut(&mut T, &[String]) -> Result<usize, String>>,
+    callback: Box<dyn FnMut(&mut T, &[String]) -> Result<usize, String>>,
     nparams: usize,
 
     flag: u32,
@@ -84,7 +84,7 @@ impl <'a, T> ArgumentParser<'a, T> {
         id_long: &'static str,
         descr: &'static str,
         metavar: &'static str,
-        callback: Box<FnMut(&mut T, &[String]) -> Result<usize, String>>,
+        callback: Box<dyn FnMut(&mut T, &[String]) -> Result<usize, String>>,
         nparams: usize,
         flag: u32,
         group: Option<ArgGroup>,
