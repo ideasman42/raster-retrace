@@ -7,8 +7,11 @@
 /// outputting a bezier curve that fits within an error margin.
 ///
 
+/// Enable the refit pass for improved curve quality.
 const USE_REFIT: bool = true;
+/// Allow removing knots during the refit pass.
 const USE_REFIT_REMOVE: bool = true;
+/// Scale factor for corner detection error threshold.
 const CORNER_SCALE: f64 = 2.0;  // this is weak, should be made configurable.
 
 use ::intern::math_vector::{
@@ -23,6 +26,7 @@ use ::intern::math_vector::{
 
 use ::intern::min_heap;
 
+/// Number of dimensions for curve fitting (2D points).
 const DIMS: usize = ::intern::math_vector::DIMS;
 
 use std::collections::LinkedList;
@@ -37,13 +41,24 @@ use super::curve_fit_cubic_refit::{
     refine_corner,
 };
 
+/// Tracing mode for polygon extraction from raster images.
 #[derive(Copy, Clone, PartialEq)]
 pub enum TraceMode {
+    /// Trace the outline (boundary) of shapes.
     Outline,
+    /// Trace the centerline (skeleton) of shapes.
     Centerline,
 }
 
 
+/// Fit cubic bezier curves to a single polygon.
+///
+/// Takes a list of points and fits bezier curves that approximate the polygon
+/// within the specified error threshold. Optionally detects corners where the
+/// curve direction changes sharply.
+///
+/// Returns a list of cubic bezier segments, where each segment is represented
+/// as `[handle_in, point, handle_out]`.
 pub fn fit_poly_single(
     // points_orig: &[[f64; 2]],
     points_orig: &Vec<[f64; DIMS]>,
@@ -259,6 +274,13 @@ pub fn fit_poly_single(
 }
 
 
+/// Fit cubic bezier curves to a list of polygons.
+///
+/// Processes multiple polygons in parallel when there are more than one.
+/// Each polygon is processed independently using `fit_poly_single`.
+///
+/// The input is a list of `(is_cyclic, points)` tuples.
+/// Returns a list of `(is_cyclic, bezier_segments)` tuples.
 pub fn fit_poly_list(
     poly_list_src: LinkedList<(bool, Vec<[f64; DIMS]>)>,
     error_threshold: f64,

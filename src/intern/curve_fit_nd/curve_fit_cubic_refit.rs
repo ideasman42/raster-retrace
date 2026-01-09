@@ -120,6 +120,7 @@ pub mod types {
     }
 }
 
+/// Re-export core types from the types module.
 pub use self::types::{
     Knot,
     PointData,
@@ -929,7 +930,8 @@ pub mod refine_corner {
     struct KnotCornerState {
         /// Index of the knot being considered for corner collapse.
         index: usize,
-        /// Merge adjacent handles into this one (may be shared with the 'index').
+        /// Indices of adjacent knots [k_prev, k_next] whose tangents will be
+        /// collapsed into this corner. The corner inherits tangents from these neighbors.
         index_pair: [usize; 2],
         /// Handle lengths and errors for the collapsed corner.
         fit_params: KnotAdjacentParams,

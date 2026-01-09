@@ -751,6 +751,7 @@ fn cubic_apply_handle_clamping(
 ) {
     let center = points_calc_center_weighted(points);
 
+    /// Maximum handle distance as a multiple of the point cloud radius.
     const CLAMP_SCALE: f64 = 3.0;
 
     // Find max distance squared from center to any point, scaled by clamp_scale.
