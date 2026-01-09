@@ -441,8 +441,9 @@ fn points_calc_coord_length(
     debug_assert!(u.len() == points.len());
 
     let w = u[u.len() - 1];
+    let w_inv = 1.0 / w;
     for u_step in &mut u[1..] {
-        *u_step /= w;
+        *u_step *= w_inv;
     }
 
     return (u, w);
