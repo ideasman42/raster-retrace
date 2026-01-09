@@ -60,11 +60,21 @@ pub mod types {
 
         pub tangents: &'a Vec<[f64; DIMS]>,
     }
+
+    /// Handle lengths and error for the 2 segments between 3 knots.
+    #[derive(Copy, Clone)]
+    pub struct KnotAdjacentParams {
+        pub handles_prev: [f64; 2],
+        pub handles_next: [f64; 2],
+        pub error_sq_prev: f64,
+        pub error_sq_next: f64,
+    }
 }
 
 pub use self::types::{
     Knot,
     PointData,
+    KnotAdjacentParams,
 };
 
 /// Advance knot index to next knot in array, wrapping at end.
@@ -372,20 +382,89 @@ pub mod refine_refit {
         knot_calc_curve_error_value_and_index,
         knot_find_split_point,
         Knot,
+        KnotAdjacentParams,
         PointData,
     };
     use ::intern::min_heap;
 
+    /// Result from refining a refit index in one direction.
+    struct RefineResult {
+        index_refit: usize,
+        params: KnotAdjacentParams,
+        is_refined: bool,
+    }
+
+    /// Refine the refit index by searching neighbors for lower error.
+    /// Stops when no further improvement is found.
+    /// `dir`: -1 to search toward `k_prev`, 1 to search toward `k_next`.
+    fn knot_refit_index_refine(
+        pd: &PointData,
+        knots: &Vec<Knot>,
+        k_prev: &Knot,
+        k_next: &Knot,
+        index_refit: usize,
+        dir: isize,
+        mut cost_sq_max: f64,
+    ) -> RefineResult {
+        // Stop before reaching the adjacent knot.
+        let index_end = if dir == -1 { k_prev.index } else { k_next.index };
+        let points_len = pd.points_len;
+        let mut i = index_refit;
+        let mut result = RefineResult {
+            index_refit,
+            params: KnotAdjacentParams {
+                handles_prev: [0.0; 2],
+                handles_next: [0.0; 2],
+                error_sq_prev: 0.0,
+                error_sq_next: 0.0,
+            },
+            is_refined: false,
+        };
+
+        // Step through indices in direction `dir`, with wraparound.
+        loop {
+            i = ((i as isize + dir + points_len as isize) as usize) % points_len;
+            if i == index_end {
+                break;
+            }
+
+            let k_test = &knots[i];
+            let (error_sq_prev, handles_prev_test) = knot_calc_curve_error_value(
+                pd, k_prev, k_test,
+                &pd.tangents[k_prev.tan[1]],
+                &pd.tangents[k_test.tan[0]],
+            );
+            if error_sq_prev >= cost_sq_max {
+                break;
+            }
+
+            let (error_sq_next, handles_next_test) = knot_calc_curve_error_value(
+                pd, k_test, k_next,
+                &pd.tangents[k_test.tan[1]],
+                &pd.tangents[k_next.tan[0]],
+            );
+            if error_sq_next >= cost_sq_max {
+                break;
+            }
+
+            // Raise the bar: subsequent iterations must beat this.
+            cost_sq_max = error_sq_prev.max(error_sq_next);
+            result.index_refit = i;
+            result.params.handles_prev = handles_prev_test;
+            result.params.handles_next = handles_next_test;
+            result.params.error_sq_prev = error_sq_prev;
+            result.params.error_sq_next = error_sq_next;
+            result.is_refined = true;
+        }
+        return result;
+    }
+
     #[derive(Copy, Clone)]
     struct KnotRefitState {
         index: usize,
-        // When INVALID - remove this item
+        /// When INVALID - remove this item.
         index_refit: usize,
-
-        // Handles for prev/next knots
-        handle_pair: [[f64; 2]; 2],
-
-        fit_error_max_sq_pair: [f64; 2],
+        fit_params: KnotAdjacentParams,
     }
 
     fn knot_refit_error_recalculate(
@@ -426,9 +505,12 @@ pub mod refine_refit {
                         index: k_curr.index,
                         // INVALID == remove
                         index_refit: INVALID,
-                        // 0.0 == unused
-                        handle_pair: [[handles[0], 0.0], [0.0, handles[1]]],
-                        fit_error_max_sq_pair: [fit_error_max_sq, fit_error_max_sq],
+                        fit_params: KnotAdjacentParams {
+                            handles_prev: [handles[0], 0.0],  // [1] unused
+                            handles_next: [0.0, handles[1]],  // [0] unused
+                            error_sq_prev: fit_error_max_sq,
+                            error_sq_next: fit_error_max_sq,
+                        },
                     }
                 );
                 return;
@@ -526,7 +608,53 @@ pub mod refine_refit {
         } else {
             refit_result_or_none =
                 knot_calc_curve_error_value_pair_above_error_or_none(
-                    pd, k_prev, &knots[k_refit_index], k_next, cost_sq_src_max)
+                    pd, k_prev, &knots[k_refit_index], k_next, cost_sq_src_max);
+
+            // Local refinement: search neighbors for a better refit index.
+            // Search both directions independently to avoid bias.
+            // Skip when error is zero (e.g. exactly straight lines).
+            if let Some((handles_prev, fit_error_dst_prev, handles_next, fit_error_dst_next)) =
+                refit_result_or_none
+            {
+                let cost_sq_dst_max_init = fit_error_dst_prev.max(fit_error_dst_next);
+                if cost_sq_dst_max_init > 0.0 {
+                    // Search toward k_prev (dir=-1) and toward k_next (dir=1).
+                    let scan_prev = knot_refit_index_refine(
+                        pd, knots, k_prev, k_next, k_refit_index, -1, cost_sq_dst_max_init);
+                    let scan_next = knot_refit_index_refine(
+                        pd, knots, k_prev, k_next, k_refit_index, 1, cost_sq_dst_max_init);
+
+                    // Pick the best result from both directions.
+                    if scan_prev.is_refined || scan_next.is_refined {
+                        let scan = if scan_prev.is_refined && scan_next.is_refined {
+                            // Both directions found improvements, pick the best.
+                            // In the unlikely event of a tie, minimum error breaks it.
+                            let cost_sq_max_prev = scan_prev.params.error_sq_prev.max(scan_prev.params.error_sq_next);
+                            let cost_sq_max_next = scan_next.params.error_sq_prev.max(scan_next.params.error_sq_next);
+                            if cost_sq_max_prev < cost_sq_max_next {
+                                &scan_prev
+                            } else if cost_sq_max_next < cost_sq_max_prev {
+                                &scan_next
+                            } else {
+                                let cost_sq_min_prev = scan_prev.params.error_sq_prev.min(scan_prev.params.error_sq_next);
+                                let cost_sq_min_next = scan_next.params.error_sq_prev.min(scan_next.params.error_sq_next);
+                                if cost_sq_min_prev <= cost_sq_min_next { &scan_prev } else { &scan_next }
+                            }
+                        } else if scan_prev.is_refined {
+                            &scan_prev
+                        } else {
+                            &scan_next
+                        };
+
+                        // Use results from the winning direction.
+                        k_refit_index = scan.index_refit;
+                        refit_result_or_none = Some((
+                            scan.params.handles_prev, scan.params.error_sq_prev,
+                            scan.params.handles_next, scan.params.error_sq_next,
+                        ));
+                    }
+                }
+            }
         }
         // end exhaustive test
 
@@ -544,8 +672,12 @@ pub mod refine_refit {
                 KnotRefitState {
                     index: k_curr.index,
                     index_refit: k_refit_index,
-                    handle_pair: [handles_prev, handles_next],
-                    fit_error_max_sq_pair: [fit_error_dst_prev, fit_error_dst_next],
+                    fit_params: KnotAdjacentParams {
+                        handles_prev: handles_prev,
+                        handles_next: handles_next,
+                        error_sq_prev: fit_error_dst_prev,
+                        error_sq_next: fit_error_dst_next,
+                    },
                 }
             );
             return;
@@ -598,12 +730,12 @@ pub mod refine_refit {
                     // remove
                 } else {
                     let k_refit = &mut knots[r.index_refit];
-                    k_refit.handles[0] = r.handle_pair[0][1];
-                    k_refit.handles[1] = r.handle_pair[1][0];
+                    k_refit.handles[0] = r.fit_params.handles_prev[1];
+                    k_refit.handles[1] = r.fit_params.handles_next[0];
                 }
 
-                knots[k_prev_index].handles[1] = r.handle_pair[0][0];
-                knots[k_next_index].handles[0] = r.handle_pair[1][1];
+                knots[k_prev_index].handles[1] = r.fit_params.handles_prev[0];
+                knots[k_next_index].handles[0] = r.fit_params.handles_next[1];
             }
             // finished with 'r'
 
@@ -623,7 +755,7 @@ pub mod refine_refit {
                 knots[k_next_index].prev = k_prev_index;
                 knots[k_prev_index].next = k_next_index;
 
-                knots[k_prev_index].fit_error_sq_next = r.fit_error_max_sq_pair[0];
+                knots[k_prev_index].fit_error_sq_next = r.fit_params.error_sq_prev;
 
                 *knots_len_remaining -= 1;
             } else {
@@ -631,13 +763,13 @@ pub mod refine_refit {
                 knots[k_next_index].prev = r.index_refit;
                 knots[k_prev_index].next = r.index_refit;
 
-                knots[k_prev_index].fit_error_sq_next = r.fit_error_max_sq_pair[0];
+                knots[k_prev_index].fit_error_sq_next = r.fit_params.error_sq_prev;
 
                 let k_refit = &mut knots[r.index_refit];
                 k_refit.prev = k_prev_index;
                 k_refit.next = k_next_index;
 
-                k_refit.fit_error_sq_next = r.fit_error_max_sq_pair[1];
+                k_refit.fit_error_sq_next = r.fit_params.error_sq_next;
 
                 k_refit.is_remove = false;
             }
@@ -667,6 +799,7 @@ pub mod refine_corner {
         knot_calc_curve_error_value,
         knot_find_split_point_on_axis,
         Knot,
+        KnotAdjacentParams,
         PointData,
     };
     use ::intern::math_vector::{
@@ -677,17 +810,13 @@ pub mod refine_corner {
     };
     use ::intern::min_heap;
 
-    // Result of collapsing a corner.
+    /// Result of collapsing a corner.
     #[derive(Copy, Clone)]
     struct KnotCornerState {
         index: usize,
-        // Merge adjacent handles into this one (may be shared with the 'index').
+        /// Merge adjacent handles into this one (may be shared with the 'index').
         index_pair: [usize; 2],
-
-        // Handles for prev/next knots.
-        handle_pair: [[f64; 2]; 2],
-
-        fit_error_max_sq_pair: [f64; 2],
+        fit_params: KnotAdjacentParams,
     }
 
     /// (Re)calculate the error incurred from turning this into a corner.
@@ -730,10 +859,13 @@ pub mod refine_corner {
                         fit_error_dst_prev.max(fit_error_dst_next),
                         KnotCornerState {
                             index: k_split.index,
-                            // Need to store handle lengths for both sides
                             index_pair: [k_prev.index, k_next.index],
-                            handle_pair: [handles_prev, handles_next],
-                            fit_error_max_sq_pair: [fit_error_dst_prev, fit_error_dst_next],
+                            fit_params: KnotAdjacentParams {
+                                handles_prev: handles_prev,
+                                handles_next: handles_next,
+                                error_sq_prev: fit_error_dst_prev,
+                                error_sq_next: fit_error_dst_next,
+                            },
                         }
                     );
 
@@ -852,11 +984,11 @@ pub mod refine_corner {
             {
                 let k_prev  = &mut knots[k_prev_index];
                 k_prev.next = k_split_index;
-                k_prev.handles[1]  = c.handle_pair[0][0];
+                k_prev.handles[1]  = c.fit_params.handles_prev[0];
                 tan_prev = k_prev.tan[1];
 
-                debug_assert!(c.fit_error_max_sq_pair[0] <= error_max_sq);
-                k_prev.fit_error_sq_next = c.fit_error_max_sq_pair[0];
+                debug_assert!(c.fit_params.error_sq_prev <= error_max_sq);
+                k_prev.fit_error_sq_next = c.fit_params.error_sq_prev;
             }
 
             {
@@ -864,7 +996,7 @@ pub mod refine_corner {
                 k_next.prev = k_split_index;
                 tan_next = k_next.tan[0];
 
-                k_next.handles[0] = c.handle_pair[1][1];
+                k_next.handles[0] = c.fit_params.handles_next[1];
             }
 
             // Remove while collapsing
@@ -883,11 +1015,11 @@ pub mod refine_corner {
                 k_split.tan[1] = tan_next; // knots[k_next_index].tan[0];
 
                 // Own handles
-                k_split.handles[0] = c.handle_pair[0][1];
-                k_split.handles[1] = c.handle_pair[1][0];
+                k_split.handles[0] = c.fit_params.handles_prev[1];
+                k_split.handles[1] = c.fit_params.handles_next[0];
 
-                debug_assert!(c.fit_error_max_sq_pair[1] <= error_max_sq);
-                k_split.fit_error_sq_next = c.fit_error_max_sq_pair[1];
+                debug_assert!(c.fit_params.error_sq_next <= error_max_sq);
+                k_split.fit_error_sq_next = c.fit_params.error_sq_next;
             }
 
             *knots_len_remaining += 1;
