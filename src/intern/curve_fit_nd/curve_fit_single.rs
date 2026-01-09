@@ -4,6 +4,7 @@ use ::intern::math_vector::{
     len_vnvn,
     sub_vnvn,
     dot_vnvn,
+    sq,
 };
 
 // weak?
@@ -180,6 +181,18 @@ mod cubic_solve_circle {
         } else {
             return None;
         }
+    }
+
+    /// Compute the handle scale for a circular fallback, without constructing a full cubic.
+    /// Used by handle clamping to get a reasonable fallback alpha value.
+    pub fn calc_scale(
+        p0: &[f64; DIMS],
+        p3: &[f64; DIMS],
+        tan_l: &[f64; DIMS],
+        tan_r: &[f64; DIMS],
+        points_coords_length: f64,
+    ) -> Option<f64> {
+        points_calc_cubic_scale(p0, p3, tan_l, tan_r, points_coords_length)
     }
 
 
@@ -562,7 +575,8 @@ fn cubic_calc_error(
     {
         let pt_eval = cubic_calc_point(cubic, *u_step);
         let err_sq = len_squared_vnvn(pt_real, &pt_eval);
-        if err_sq > error_max_sq {
+        // Use >= to match C behavior: pick the last point with max error.
+        if err_sq >= error_max_sq {
             error_max_sq = err_sq;
             error_index = index;
         }
@@ -596,10 +610,10 @@ fn cubic_calc_error_limit(
     {
         let pt_eval = cubic_calc_point(cubic, *u_step);
         let err_sq = len_squared_vnvn(pt_real, &pt_eval);
-        if err_sq > error_max_sq {
-            if err_sq > error_max_sq_limit {
-                return None;
-            }
+        // Use >= to match C behavior.
+        if err_sq >= error_max_sq_limit {
+            return None;
+        } else if err_sq >= error_max_sq {
             error_max_sq = err_sq;
             error_index = index;
         }
@@ -612,6 +626,106 @@ fn cubic_calc_error_limit(
         max_sq: error_max_sq,
         index: error_index,
     });
+}
+
+/// Calculate a center that compensates for point spacing.
+fn points_calc_center_weighted(
+    points: &[[f64; DIMS]],
+) -> [f64; DIMS] {
+    let points_len = points.len();
+    let mut center = [0.0; DIMS];
+    let mut w_tot = 0.0;
+
+    let mut pt_prev = &points[points_len - 2];
+    let mut pt_curr = &points[points_len - 1];
+
+    let mut w_prev = len_vnvn(pt_prev, pt_curr);
+
+    for i_next in 0..points_len {
+        let pt_next = &points[i_next];
+        let w_next = len_vnvn(pt_curr, pt_next);
+        let w = w_prev + w_next;
+        w_tot += w;
+
+        for j in 0..DIMS {
+            center[j] += pt_curr[j] * w;
+        }
+
+        w_prev = w_next;
+        pt_prev = pt_curr;
+        pt_curr = pt_next;
+    }
+
+    if w_tot != 0.0 {
+        let w_inv = 1.0 / w_tot;
+        for j in 0..DIMS {
+            center[j] *= w_inv;
+        }
+    }
+
+    center
+}
+
+/// Apply handle clamping to prevent extreme handle values.
+/// Clamps handles to be within 3x the maximum distance from any point to the weighted center.
+fn cubic_apply_handle_clamping(
+    cubic: &mut types::Cubic,
+    points: &[[f64; DIMS]],
+    tan_l: &[f64; DIMS],
+    tan_r: &[f64; DIMS],
+    points_length: f64,
+) {
+    let center = points_calc_center_weighted(points);
+
+    const CLAMP_SCALE: f64 = 3.0;
+
+    // Find max distance squared from center to any point, scaled by clamp_scale.
+    let mut dist_sq_max: f64 = 0.0;
+    for pt in points {
+        let mut dist_sq_test: f64 = 0.0;
+        for j in 0..DIMS {
+            dist_sq_test += sq((pt[j] - center[j]) * CLAMP_SCALE);
+        }
+        dist_sq_max = dist_sq_max.max(dist_sq_test);
+    }
+
+    let mut p1_dist_sq = len_squared_vnvn(&center, &cubic.p1);
+    let mut p2_dist_sq = len_squared_vnvn(&center, &cubic.p2);
+
+    // If either handle exceeds the limit, fall back to a simpler calculation.
+    if p1_dist_sq > dist_sq_max || p2_dist_sq > dist_sq_max {
+        // Try circular fallback scale.
+        let alpha_test = if let Some(scale) = cubic_solve_circle::calc_scale(
+            &cubic.p0, &cubic.p3, tan_l, tan_r, points_length)
+        {
+            scale
+        } else {
+            len_vnvn(&cubic.p0, &cubic.p3) / 3.0
+        };
+
+        // Recalculate handles with fallback alpha.
+        for j in 0..DIMS {
+            cubic.p1[j] = cubic.p0[j] - tan_l[j] * alpha_test;
+            cubic.p2[j] = cubic.p3[j] + tan_r[j] * alpha_test;
+        }
+
+        p1_dist_sq = len_squared_vnvn(&center, &cubic.p1);
+        p2_dist_sq = len_squared_vnvn(&center, &cubic.p2);
+    }
+
+    // Clamp handles within the 3x radius.
+    if p1_dist_sq > dist_sq_max {
+        let scale = (dist_sq_max.sqrt()) / (p1_dist_sq.sqrt());
+        for j in 0..DIMS {
+            cubic.p1[j] = center[j] + (cubic.p1[j] - center[j]) * scale;
+        }
+    }
+    if p2_dist_sq > dist_sq_max {
+        let scale = (dist_sq_max.sqrt()) / (p2_dist_sq.sqrt());
+        for j in 0..DIMS {
+            cubic.p2[j] = center[j] + (cubic.p2[j] - center[j]) * scale;
+        }
+    }
 }
 
 fn fit_cubic_to_points(
@@ -670,7 +784,9 @@ fn fit_cubic_to_points(
         let mut cubic_least_square;
         let mut error_least_square;
 
-        if let Some(cubic_test) = cubic_solve_least_square::calc(points, tan_l, tan_r, &u) {
+        if let Some(mut cubic_test) = cubic_solve_least_square::calc(points, tan_l, tan_r, &u) {
+            // Apply handle clamping to prevent extreme values.
+            cubic_apply_handle_clamping(&mut cubic_test, points, tan_l, tan_r, points_length);
             // We want the result so we can refine it (even if it's currently not the best).
             error_least_square = cubic_test_error!(&cubic_test);
             cubic_least_square = cubic_test;
@@ -685,9 +801,11 @@ fn fit_cubic_to_points(
                 break;
             }
 
-            if let Some(cubic_test) =
+            if let Some(mut cubic_test) =
                 cubic_solve_least_square::calc(points, tan_l, tan_r, &u_prime)
             {
+                // Apply handle clamping to prevent extreme values.
+                cubic_apply_handle_clamping(&mut cubic_test, points, tan_l, tan_r, points_length);
                 let error_test = cubic_calc_error(&cubic_test, points, &u_prime);
 
                 if error_least_square.max_sq > error_test.max_sq {
