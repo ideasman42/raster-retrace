@@ -76,13 +76,11 @@ mod cubic_solve_least_square {
             let mut c: [[f64; 2]; 2] = [[0.0, 0.0], [0.0, 0.0]];
 
             for (pt, u) in points.iter().zip(u_prime) {
+                let (b1, b2, b0_plus_b1, b2_plus_b3) = bezier::bernstein_all(*u);
                 let a: [[f64; DIMS]; 2] = [
-                    mul_vn_fl(tan_l, bezier::b1(*u)),
-                    mul_vn_fl(tan_r, bezier::b2(*u)),
+                    mul_vn_fl(tan_l, b1),
+                    mul_vn_fl(tan_r, b2),
                 ];
-
-                let b0_plus_b1 = bezier::b0_plus_b1(*u);
-                let b2_plus_b3 = bezier::b2_plus_b3(*u);
 
                 // inline dot product
                 for j in 0..DIMS {
@@ -131,22 +129,21 @@ mod cubic_solve_least_square {
 
     // Bezier multipliers
     mod bezier {
-        pub fn b1(u: f64) -> f64 {
-            let tmp = 1.0 - u;
-            return 3.0 * u * tmp * tmp;
-        }
+        /// Compute all four Bernstein polynomial values with shared intermediate calculations.
+        /// Avoids redundant computation of (1-u), u^2, etc. when all four values are needed.
+        #[inline]
+        pub fn bernstein_all(u: f64) -> (f64, f64, f64, f64) {
+            let s = 1.0 - u;
+            let ss = s * s;
+            let uu = u * u;
+            let us3 = 3.0 * u * s;
 
-        pub fn b2(u: f64) -> f64 {
-            return 3.0 * u * u * (1.0 - u);
-        }
+            let b1 = us3 * s;                      // 3 * u * (1-u)^2
+            let b2 = us3 * u;                      // 3 * u^2 * (1-u)
+            let b0_plus_b1 = ss * (1.0 + 2.0 * u);
+            let b2_plus_b3 = uu * (3.0 - 2.0 * u);
 
-        pub fn b0_plus_b1(u: f64) -> f64 {
-            let tmp = 1.0 - u;
-            return tmp * tmp * (1.0 + 2.0 * u);
-        }
-
-        pub fn b2_plus_b3(u: f64) -> f64 {
-            return u * u * (3.0 - 2.0 * u);
+            (b1, b2, b0_plus_b1, b2_plus_b3)
         }
     }
 
@@ -376,13 +373,10 @@ fn cubic_find_root(
     u: f64,
 ) -> f64 {
     // Newton-Raphson Method.
-    // all vectors
-    let q0_u = sub_vnvn(&cubic_calc_point(cubic, u), p);
-    let q1_u = cubic_calc_speed(cubic, u);
-    let q2_u = cubic_calc_acceleration(cubic, u);
+    let (point, q1_u, q2_u) = cubic_calc_point_speed_accel(cubic, u);
+    let q0_u = sub_vnvn(&point, p);
 
-    // may divide-by-zero, caller must check for that case.
-
+    // May divide-by-zero, caller must check for that case.
     // u - (q0_u * q1_u) / (q1_u.length_squared() + q0_u * q2_u)
     return u - dot_vnvn(&q0_u, &q1_u) / (dot_vnvn(&q1_u, &q1_u) + dot_vnvn(&q0_u, &q2_u));
 }
@@ -499,6 +493,50 @@ fn cubic_calc_acceleration(
                           (p3[j] - 2.0 * p2[j] + p1[j]) * t);
     }
     return v_out;
+}
+
+/// Compute point, first derivative (speed), and second derivative (acceleration) in one pass.
+/// Combines cubic_calc_point, cubic_calc_speed, and cubic_calc_acceleration to share
+/// intermediate values and reduce redundant control point access.
+#[inline]
+fn cubic_calc_point_speed_accel(
+    cubic: &types::Cubic, t: f64,
+) -> ([f64; DIMS], [f64; DIMS], [f64; DIMS]) {
+    let p0 = &cubic.p0;
+    let p1 = &cubic.p1;
+    let p2 = &cubic.p2;
+    let p3 = &cubic.p3;
+    let s = 1.0 - t;
+    let ss = s * s;
+    let tt = t * t;
+    let st2 = 2.0 * s * t;
+
+    let mut r_point = [0.0; DIMS];
+    let mut r_speed = [0.0; DIMS];
+    let mut r_accel = [0.0; DIMS];
+
+    for j in 0..DIMS {
+        // Control point differences, computed once.
+        let d01 = p1[j] - p0[j];
+        let d12 = p2[j] - p1[j];
+        let d23 = p3[j] - p2[j];
+
+        // Point via de Casteljau's algorithm.
+        let p01 = p0[j] + d01 * t;
+        let p12 = p1[j] + d12 * t;
+        let p23 = p2[j] + d23 * t;
+        let p012 = p01 * s + p12 * t;
+        let p123 = p12 * s + p23 * t;
+        r_point[j] = p012 * s + p123 * t;
+
+        // First derivative: 3 * ((d01)*s^2 + 2*(d12)*s*t + (d23)*t^2).
+        r_speed[j] = 3.0 * (d01 * ss + d12 * st2 + d23 * tt);
+
+        // Second derivative: 6 * ((d12 - d01)*s + (d23 - d12)*t).
+        r_accel[j] = 6.0 * ((d12 - d01) * s + (d23 - d12) * t);
+    }
+
+    (r_point, r_speed, r_accel)
 }
 
 #[derive(Clone, Copy)]
