@@ -1,423 +1,217 @@
 ///
-/// Math functions!
+/// Math functions for N-dimensional vectors
 ///
+/// All functions work with arbitrary-dimension vectors represented as slices.
+/// Functions returning arrays use DIMS_MAX for stack allocation, but only
+/// operate on the first `dims` elements.
 
-// TODO, expose this in a way that users of this library can
-// do both 2D, 3D... 4D... etc operations.
-// For now just ensure the code isn't hard coded to a single dimension.
-
-pub const DIMS: usize = 2;
-
-/*
-macro_rules! expand_dims_eval {
-    ($index_var:ident, $const_var:expr, $body:block) => {
-        {
-            for $index_var in 0..$const_var {
-                $body;
-            }
-            // we could check 'break' never runs in '$body'?
+/// Maximum supported dimensions. Arrays are stack-allocated to this size.
+/// Configurable via DIMS_MAX environment variable at build time (default: 32).
+pub const DIMS_MAX: usize = {
+    const fn parse_usize(s: &str) -> usize {
+        let mut result = 0usize;
+        let bytes = s.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            result = result * 10 + (bytes[i] - b'0') as usize;
+            i += 1;
         }
+        result
     }
-}
-*/
+    parse_usize(env!("DIMS_MAX"))
+};
 
-macro_rules! expand_dims_into {
-    ($index_var:ident, $const_var:expr, $body:block) => {
-        {
-            let mut tmp: [f64; $const_var] = [0.0; $const_var];
-            for $index_var in 0..$const_var {
-                tmp[$index_var] = $body;
-            }
-            // we could check 'break' never runs in '$body'?
-            tmp
-        }
-    }
-}
+const _: () = assert!(DIMS_MAX > 0, "DIMS_MAX must be greater than 0");
+
+/// Alias for DIMS_MAX for compatibility with raster-retrace code.
+pub const DIMS: usize = DIMS_MAX;
 
 const EPS: f64 = 1e-8;
 
 pub fn sq(d: f64) -> f64 { d * d }
 
-pub fn is_finite_vn(
-    v0: &[f64; DIMS],
-) -> bool {
-    for f in v0 {
-        if !f.is_finite() {
-            return false;
-        }
+pub fn is_finite_vn(v0: &[f64]) -> bool {
+    v0.iter().all(|f| f.is_finite())
+}
+
+pub fn zero_vn(v0: &mut [f64]) {
+    v0.fill(0.0);
+}
+
+pub fn negated_vn(v0: &[f64], dims: usize) -> [f64; DIMS_MAX] {
+    let mut out = [0.0; DIMS_MAX];
+    for j in 0..dims {
+        out[j] = -v0[j];
     }
-    return true;
+    out
 }
 
-pub fn zero_vn(
-    v0: &mut [f64; DIMS],
-) {
-    for j in 0..DIMS {
-        v0[j] = 0.0;
+pub fn copy_vnvn(v0: &mut [f64], v1: &[f64]) {
+    debug_assert_eq!(v0.len(), v1.len());
+    v0.copy_from_slice(v1);
+}
+
+pub fn dot_vnvn(v0: &[f64], v1: &[f64]) -> f64 {
+    debug_assert_eq!(v0.len(), v1.len());
+    v0.iter().zip(v1).map(|(a, b)| a * b).sum()
+}
+
+pub fn add_vnvn(v0: &[f64], v1: &[f64], dims: usize) -> [f64; DIMS_MAX] {
+    let mut out = [0.0; DIMS_MAX];
+    for j in 0..dims {
+        out[j] = v0[j] + v1[j];
     }
+    out
 }
 
-pub fn negated_vn(
-    v0: &[f64; DIMS],
-) -> [f64; DIMS] {
-    expand_dims_into!(j, DIMS, {
-        -v0[j]
-    })
-}
-
-/*
-fn void flip_vn_vnvn(
-        f64 v_out: &[f64; DIMS],
-        const f64 v0: &[f64; DIMS],
-        const f64 v1: &[f64; DIMS],
-) {
-    for j in 0..DIMS {
-        v_out[j] = v0[j] + (v0[j] - v1[j]);
+pub fn sub_vnvn(v0: &[f64], v1: &[f64], dims: usize) -> [f64; DIMS_MAX] {
+    let mut out = [0.0; DIMS_MAX];
+    for j in 0..dims {
+        out[j] = v0[j] - v1[j];
     }
+    out
 }
-*/
 
-pub fn copy_vnvn(
-    v0: &mut [f64; DIMS],
-    v1: &[f64; DIMS],
-) {
-    for j in 0..DIMS {
-        v0[j] = v1[j];
+#[allow(dead_code)]
+pub fn mid_vnvn(v0: &[f64], v1: &[f64], dims: usize) -> [f64; DIMS_MAX] {
+    let mut out = [0.0; DIMS_MAX];
+    for j in 0..dims {
+        out[j] = (v0[j] + v1[j]) * 0.5;
     }
-}
-/*
-fn void copy_vnfl_vndb(
-        float v0: &[f64; DIMS], const f64 v1: &[f64; DIMS]) {
-    for j in 0..DIMS {
-        v0[j] = (float)v1[j];
-    }
+    out
 }
 
-fn void copy_vndb_vnfl(
-        f64 v0: &[f64; DIMS], const float v1: &[f64; DIMS]) {
-    for j in 0..DIMS {
-        v0[j] = (f64)v1[j];
-    }
-}
-*/
-
-pub fn dot_vnvn(
-    v0: &[f64; DIMS],
-    v1: &[f64; DIMS],
-) -> f64 {
-    let mut d = 0.0;
-    for j in 0..DIMS {
-        d += v0[j] * v1[j];
-    }
-    return d;
-}
-
-/*
-pub fn add_vn_vnvn(
-    v_out: &mut [f64; DIMS],
-    v0: &[f64; DIMS],
-    v1: &[f64; DIMS],
-) {
-    for j in 0..DIMS {
-        v_out[j] = v0[j] + v1[j];
-    }
-}
-*/
-
-pub fn add_vnvn(
-    v0: &[f64; DIMS], v1: &[f64; DIMS],
-) -> [f64; DIMS] {
-    expand_dims_into!(j, DIMS, {
-        v0[j] + v1[j]
-    })
-}
-
-pub fn sub_vnvn(
-    v0: &[f64; DIMS], v1: &[f64; DIMS],
-) -> [f64; DIMS] {
-    expand_dims_into!(j, DIMS, {
-        v0[j] - v1[j]
-    })
-}
-
-pub fn mid_vnvn(
-    v0: &[f64; DIMS], v1: &[f64; DIMS],
-) -> [f64; DIMS] {
-    expand_dims_into!(j, DIMS, {
-        (v0[j] + v1[j]) * 0.5
-    })
-}
-
-pub fn interp_vnvn(
-    v0: &[f64; DIMS], v1: &[f64; DIMS], t: f64,
-) -> [f64; DIMS] {
+#[allow(dead_code)]
+pub fn interp_vnvn(v0: &[f64], v1: &[f64], t: f64, dims: usize) -> [f64; DIMS_MAX] {
     let s = 1.0 - t;
-    expand_dims_into!(j, DIMS, {
-        (v0[j] * s) + (v1[j] * t)
-    })
-}
-
-/*
-fn iadd_vnvn(
-    f64 v0: &[f64; DIMS], const f64 v1: &[f64; DIMS],
-) {
-    for j in 0..DIMS {
-        v0[j] += v1[j];
+    let mut out = [0.0; DIMS_MAX];
+    for j in 0..dims {
+        out[j] = v0[j] * s + v1[j] * t;
     }
+    out
 }
 
-fn isub_vnvn(
-    f64 v0: &[f64; DIMS], const f64 v1: &[f64; DIMS],
-) {
-    for j in 0..DIMS {
-        v0[j] -= v1[j];
+pub fn madd_vnvn_fl(v0: &[f64], v1: &[f64], f: f64, dims: usize) -> [f64; DIMS_MAX] {
+    let mut out = [0.0; DIMS_MAX];
+    for j in 0..dims {
+        out[j] = v0[j] + v1[j] * f;
     }
+    out
 }
 
-pub fn madd_vn_vnvn_fl(
-    v_out: &mut [f64; DIMS], v0: &[f64; DIMS], v1: &[f64; DIMS], f: f64,
-) {
-    for j in 0..DIMS {
-        v_out[j] = v0[j] + v1[j] * f;
+pub fn msub_vnvn_fl(v0: &[f64], v1: &[f64], f: f64, dims: usize) -> [f64; DIMS_MAX] {
+    let mut out = [0.0; DIMS_MAX];
+    for j in 0..dims {
+        out[j] = v0[j] - v1[j] * f;
     }
+    out
 }
 
-pub fn msub_vn_vnvn_fl(
-    v_out: &mut [f64; DIMS], v0: &[f64; DIMS], v1: &[f64; DIMS], f: f64,
-) {
-    for j in 0..DIMS {
-        v_out[j] = v0[j] - v1[j] * f;
+pub fn mul_vn_fl(v0: &[f64], f: f64, dims: usize) -> [f64; DIMS_MAX] {
+    let mut out = [0.0; DIMS_MAX];
+    for j in 0..dims {
+        out[j] = v0[j] * f;
     }
-}
-*/
-
-pub fn madd_vnvn_fl(
-    v0: &[f64; DIMS], v1: &[f64; DIMS], f: f64,
-) -> [f64; DIMS] {
-    expand_dims_into!(j, DIMS, {
-        v0[j] + v1[j] * f
-    })
+    out
 }
 
-pub fn msub_vnvn_fl(
-    v0: &[f64; DIMS], v1: &[f64; DIMS], f: f64,
-) -> [f64; DIMS] {
-    expand_dims_into!(j, DIMS, {
-        v0[j] - v1[j] * f
-    })
+fn imul_vn_fl(v0: &mut [f64], f: f64) {
+    v0.iter_mut().for_each(|v| *v *= f);
 }
 
-/*
-fn void msub_vn_vnvn_fl(
-    f64 v_out: &[f64; DIMS],
-    const f64 v0: &[f64; DIMS], const f64 v1: &[f64; DIMS],
-    const f64 f,
-) {
-    for j in 0..DIMS {
-        v_out[j] = v0[j] - v1[j] * f;
-    }
+pub fn len_squared_vnvn(v0: &[f64], v1: &[f64]) -> f64 {
+    debug_assert_eq!(v0.len(), v1.len());
+    v0.iter().zip(v1).map(|(a, b)| sq(a - b)).sum()
 }
 
-fn void miadd_vn_vn_fl(
-    f64 v_out: &[f64; DIMS], const f64 v0: &[f64; DIMS], f64 f)
-{
-    for j in 0..DIMS {
-        v_out[j] += v0[j] * f;
-    }
+pub fn len_squared_vn(v0: &[f64]) -> f64 {
+    v0.iter().map(|v| sq(*v)).sum()
 }
 
-#if 0
-fn void misub_vn_vn_fl(
-    f64 v_out: &[f64; DIMS], const f64 v0: &[f64; DIMS], f64 f)
-{
-    for j in 0..DIMS {
-        v_out[j] -= v0[j] * f;
-    }
-}
-#endif
-
-fn void mul_vnvn_fl(
-    f64 v_out: &[f64; DIMS],
-    const f64 v0: &[f64; DIMS], const f64 f)
-{
-    for j in 0..DIMS {
-        v_out[j] = v0[j] * f;
-    }
-}
-*/
-
-pub fn mul_vn_fl(
-    v0: &[f64; DIMS], f: f64,
-) -> [f64; DIMS] {
-    expand_dims_into!(j, DIMS, {
-        v0[j] * f
-    })
+pub fn len_vnvn(v0: &[f64], v1: &[f64]) -> f64 {
+    len_squared_vnvn(v0, v1).sqrt()
 }
 
-fn imul_vn_fl(
-    v0: &mut [f64; DIMS], f: f64,
-) {
-    for j in 0..DIMS {
-        v0[j] *= f;
-    }
-}
-
-pub fn len_squared_vnvn(
-    v0: &[f64; DIMS], v1: &[f64; DIMS],
-) -> f64 {
-    let mut d = 0.0;
-    for j in 0..DIMS {
-        d += sq(v0[j] - v1[j]);
-    }
-    return d;
-}
-
-pub fn len_squared_vn(
-    v0: &[f64; DIMS],
-) -> f64 {
-    let mut d = 0.0;
-    for j in 0..DIMS {
-        d += sq(v0[j]);
-    }
-    return d;
-}
-
-pub fn len_vnvn(
-    v0: &[f64; DIMS], v1: &[f64; DIMS],
-) -> f64
-{
-    return len_squared_vnvn(v0, v1).sqrt();
-}
-/*
-pub fn len_vn(
-    v0: &[f64; DIMS],
-) -> f64
-{
-    return len_squared_vn(v0).sqrt();
-}
-*/
-
-pub fn len_squared_negated_vnvn(
-    v0: &[f64; DIMS], v1: &[f64; DIMS],
-) -> f64 {
-    let mut d = 0.0;
-    for j in 0..DIMS {
-        d += sq(v0[j] + v1[j]);
-    }
-    return d;
+pub fn len_squared_negated_vnvn(v0: &[f64], v1: &[f64]) -> f64 {
+    debug_assert_eq!(v0.len(), v1.len());
+    v0.iter().zip(v1).map(|(a, b)| sq(a + b)).sum()
 }
 
 // special case, save us negating a copy, then getting the length
-pub fn len_negated_vnvn(
-    v0: &[f64; DIMS], v1: &[f64; DIMS],
-) -> f64
-{
-    return len_squared_negated_vnvn(v0, v1).sqrt();
+pub fn len_negated_vnvn(v0: &[f64], v1: &[f64]) -> f64 {
+    len_squared_negated_vnvn(v0, v1).sqrt()
 }
 
-pub fn normalize_vn(
-    v0: &mut [f64; DIMS],
-) -> f64 {
+pub fn normalize_vn(v0: &mut [f64]) -> f64 {
     let mut d = len_squared_vn(v0);
     if (d != 0.0) && ({d = d.sqrt(); d} != 0.0) {
         imul_vn_fl(v0, 1.0 / d);
     }
-    return d;
+    d
 }
 
-pub fn normalized_vn(
-    v0: &[f64; DIMS],
-) -> [f64; DIMS] {
-    let mut v_out = *v0;
-    normalize_vn(&mut v_out);
-    return v_out;
+pub fn normalized_vn(v0: &[f64], dims: usize) -> [f64; DIMS_MAX] {
+    let mut out = [0.0; DIMS_MAX];
+    out[..dims].copy_from_slice(&v0[..dims]);
+    normalize_vn(&mut out[..dims]);
+    out
 }
 
 // v_out = (v0 - v1).normalized()
-pub fn normalized_vnvn(
-    v0: &[f64; DIMS], v1: &[f64; DIMS],
-) -> [f64; DIMS] {
-    let mut v = sub_vnvn(v0, v1);
-    normalize_vn(&mut v);
-    return v;
+pub fn normalized_vnvn(v0: &[f64], v1: &[f64], dims: usize) -> [f64; DIMS_MAX] {
+    let mut v = sub_vnvn(v0, v1, dims);
+    normalize_vn(&mut v[..dims]);
+    v
 }
 
-pub fn normalized_vnvn_with_len(
-    v0: &[f64; DIMS], v1: &[f64; DIMS],
-) -> ([f64; DIMS], f64) {
-    let mut v = sub_vnvn(v0, v1);
-    let d = normalize_vn(&mut v);
-    return (v, d);
+pub fn normalized_vnvn_with_len(v0: &[f64], v1: &[f64], dims: usize) -> ([f64; DIMS_MAX], f64) {
+    let mut v = sub_vnvn(v0, v1, dims);
+    let d = normalize_vn(&mut v[..dims]);
+    (v, d)
 }
 
-pub fn is_almost_zero_ex(
-    val: f64, eps: f64,
-) -> bool {
-    return (-eps < val) && (val < eps);
+pub fn is_almost_zero_ex(val: f64, eps: f64) -> bool {
+    (-eps < val) && (val < eps)
 }
 
-pub fn is_almost_zero(
-    val: f64,
-) -> bool {
-    return is_almost_zero_ex(val, EPS);
+pub fn is_almost_zero(val: f64) -> bool {
+    is_almost_zero_ex(val, EPS)
 }
 
-/*
-fn equals_vnvn(
-    v0: &[f64; DIMS], v1: &[f64; DIMS],
-) -> bool {
-    for j in 0..DIMS {
-        if v0[j] != v1[j] {
-            return false;
-        }
-    }
-    return true;
+pub fn project_vnvn_normalized(p: &[f64], v_proj: &[f64], dims: usize) -> [f64; DIMS_MAX] {
+    let mul = dot_vnvn(&p[..dims], &v_proj[..dims]);
+    mul_vn_fl(v_proj, mul, dims)
 }
 
-fn void project_vn_vnvn(
-    f64 v_out: &[f64; DIMS], const f64 p: &[f64; DIMS], const f64 v_proj: &[f64; DIMS],
-) {
-    const f64 mul = dot_vnvn(p, v_proj) / dot_vnvn(v_proj, v_proj);
-    mul_vnvn_fl(v_out, v_proj, mul);
-}
-*/
-
-pub fn project_vnvn_normalized(
-    p: &[f64; DIMS], v_proj: &[f64; DIMS],
-) -> [f64; DIMS] {
-    let mul = dot_vnvn(p, v_proj);
-    return mul_vn_fl(v_proj, mul);
+pub fn project_plane_vnvn_normalized(v: &[f64], v_plane: &[f64], dims: usize) -> [f64; DIMS_MAX] {
+    let proj = project_vnvn_normalized(v, v_plane, dims);
+    sub_vnvn(v, &proj[..dims], dims)
 }
 
-pub fn project_plane_vnvn_normalized(
-    v: &[f64; DIMS], v_plane: &[f64; DIMS],
-) -> [f64; DIMS] {
-    return sub_vnvn(v, &project_vnvn_normalized(v, v_plane));
+// ============================================================================
+// Fixed-dimension wrappers for raster-retrace compatibility
+// ============================================================================
+
+/// Wrapper for mid_vnvn using fixed DIMS.
+#[inline]
+pub fn mid_vnvn_fixed(v0: &[f64; DIMS], v1: &[f64; DIMS]) -> [f64; DIMS] {
+    let result = mid_vnvn(v0, v1, DIMS);
+    let mut out = [0.0; DIMS];
+    out.copy_from_slice(&result[..DIMS]);
+    out
 }
 
-/*
-pub fn closest_to_line_vn(
-    p: &[f64; DIMS], l1: &[f64; DIMS], l2: &[f64; DIMS],
-) -> [f64; DIMS] {
-    let u = sub_vnvn(l2, l1);
-    let h = sub_vnvn(p, l1);
-    let lambda = dot_vnvn(&u, &h) / dot_vnvn(&u, &u);
-    return add_vnvn(&l1, &mul_vn_fl(&u, lambda));
+/// Wrapper for interp_vnvn using fixed DIMS.
+#[inline]
+pub fn interp_vnvn_fixed(v0: &[f64; DIMS], v1: &[f64; DIMS], t: f64) -> [f64; DIMS] {
+    let result = interp_vnvn(v0, v1, t, DIMS);
+    let mut out = [0.0; DIMS];
+    out.copy_from_slice(&result[..DIMS]);
+    out
 }
-*/
-/*
-pub fn closest_to_segment_vn(
-    p: &[f64; DIMS], l1: &[f64; DIMS], l2: &[f64; DIMS],
-) -> [f64; DIMS] {
-    let u = sub_vnvn(l2, l1);
-    let h = sub_vnvn(p, l1);
-    let lambda = dot_vnvn(&u, &h) / dot_vnvn(&u, &u);
-    if !(lambda < 0.0) {
-        return *l1;
-    } else if !(lambda < 1.0) {
-        return *l2;
-    } else {
-        return add_vnvn(&l1, &mul_vn_fl(&u, lambda));
-    }
+
+/// Wrapper for len_squared_vnvn using fixed DIMS arrays.
+#[inline]
+pub fn len_squared_vnvn_fixed(v0: &[f64; DIMS], v1: &[f64; DIMS]) -> f64 {
+    len_squared_vnvn(v0, v1)
 }
-*/

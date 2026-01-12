@@ -40,8 +40,8 @@ impl NodeHandle {
     pub const INVALID: NodeHandle = NodeHandle(INVALID);
 }
 
-pub trait HeapValue: PartialOrd + Copy {}
-impl<TOrd> HeapValue for TOrd where TOrd: PartialOrd + Copy {}
+pub trait HeapValue: PartialOrd + PartialEq + Copy {}
+impl<TOrd> HeapValue for TOrd where TOrd: PartialOrd + PartialEq + Copy {}
 
 pub trait HeapData: Copy {}
 impl<TData> HeapData for TData where TData: Copy {}
@@ -89,11 +89,15 @@ impl<TOrd: HeapValue, TData: HeapData> MinHeap<TOrd, TData> {
     // -------------------------------------------------------------------
     // Private API
     //
+    /// Compare by value, using index as tie-breaker for deterministic ordering.
+    /// Otherwise equal values would have arbitrary ordering based on the heap's internal state.
+    /// While technically deterministic, this is less stable as minor changes to the heap contents
+    /// can yield different results elsewhere in the heap.
     fn node_compare(
         a: &Node<TOrd, TData>,
         b: &Node<TOrd, TData>,
     ) -> bool {
-        a.value < b.value
+        (a.value < b.value) || ((a.value == b.value) && (a.index < b.index))
     }
 
     // Debug only, does full search on data!
@@ -101,12 +105,7 @@ impl<TOrd: HeapValue, TData: HeapData> MinHeap<TOrd, TData> {
     fn contains_node_handle(
         &self, nhandle: &NodeHandle,
     ) -> bool {
-        for i in &self.tree_index {
-            if *i == nhandle.0 {
-                return true;
-            }
-        }
-        return false;
+        self.tree_index.iter().any(|&i| i == nhandle.0)
     }
 
     /// `self.tree(i)`, short for `self.node[self.tree_index[i]]`
@@ -200,7 +199,7 @@ impl<TOrd: HeapValue, TData: HeapData> MinHeap<TOrd, TData> {
             debug_assert!(self.contains_node_handle(&NodeHandle(nhandle)) == false);
         }
 
-        return NodeHandle(nhandle);
+        NodeHandle(nhandle)
     }
 
     fn node_drop(
@@ -210,7 +209,7 @@ impl<TOrd: HeapValue, TData: HeapData> MinHeap<TOrd, TData> {
         let user_data = node.user_data;
         node.index = self.free;
         self.free = free_node;
-        return user_data;
+        user_data
     }
 
     // -------------------------------------------------------------------
@@ -234,7 +233,7 @@ impl<TOrd: HeapValue, TData: HeapData> MinHeap<TOrd, TData> {
         self.heap_up(index);
 
         // index in the self.nodes
-        return nhandle;
+        nhandle
     }
 
     pub fn pop_min(
@@ -259,7 +258,7 @@ impl<TOrd: HeapValue, TData: HeapData> MinHeap<TOrd, TData> {
             self.tree_index.pop();
         }
 
-        return Some(self.node_drop(free_node));
+        Some(self.node_drop(free_node))
     }
 
     pub fn pop_min_with_value(
@@ -286,7 +285,7 @@ impl<TOrd: HeapValue, TData: HeapData> MinHeap<TOrd, TData> {
         }
         // end copy from pop_min
 
-        return Some((self.node[free_node].value, self.node_drop(free_node)));
+        Some((self.node[free_node].value, self.node_drop(free_node)))
     }
 
     pub fn insert_or_update(
@@ -314,7 +313,7 @@ impl<TOrd: HeapValue, TData: HeapData> MinHeap<TOrd, TData> {
 
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
-        return self.tree_index.len() == 0;
+        self.tree_index.is_empty()
     }
 
     pub fn node_value_update(
@@ -348,13 +347,13 @@ impl<TOrd: HeapValue, TData: HeapData> MinHeap<TOrd, TData> {
     pub fn node_value(
         &self, nhandle: NodeHandle,
     ) -> TOrd {
-        return self.node[nhandle.0].value;
+        self.node[nhandle.0].value
     }
     #[allow(dead_code)]
     pub fn node_data(
         &self, nhandle: NodeHandle,
     ) -> TData {
-        return self.node[nhandle.0].user_data;
+        self.node[nhandle.0].user_data
     }
 
     #[allow(dead_code)]

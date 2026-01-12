@@ -22,7 +22,7 @@
 /// - `refine_corner`: Corner detection and collapse
 ///
 
-use ::intern::math_vector::{
+use crate::intern::math_vector::{
     dot_vnvn,
     len_squared_vn,
     normalize_vn,
@@ -30,18 +30,13 @@ use ::intern::math_vector::{
     sub_vnvn,
 };
 
-use super::curve_fit_single;
-
-/// Number of dimensions for curve fitting (2D points).
-const DIMS: usize = ::intern::math_vector::DIMS;
+use super::curve_fit_cubic;
 
 /// Sentinel value representing an invalid index (used for prev/next in non-cyclic curves).
 pub const INVALID: usize = ::std::usize::MAX;
 
 /// Type definitions for curve refinement.
 pub mod types {
-    use super::DIMS;
-
     /// A knot in the curve fitting linked list.
     ///
     /// Knots form a doubly-linked list where each knot represents a control point
@@ -92,18 +87,21 @@ pub mod types {
     /// and tangent vectors. For cyclic curves, the arrays may be doubled
     /// to allow extracting contiguous slices across the start/end boundary.
     pub struct PointData<'a> {
-        /// The input points (may be doubled for cyclic curves).
-        /// Note: can't use points.len() directly since this may be doubled.
-        pub points: &'a Vec<[f64; DIMS]>,
+        /// The input points as a flat array (may be doubled for cyclic curves).
+        /// Layout: [p0_x, p0_y, ..., p1_x, p1_y, ..., ...]
+        pub points: &'a [f64],
+        /// Number of dimensions per point.
+        pub dims: usize,
         /// The actual number of unique points.
         pub points_len: usize,
 
         /// Cached segment lengths between consecutive points.
         /// This array may be doubled as well for cyclic curves.
-        pub points_length_cache: &'a Vec<f64>,
+        pub points_length_cache: &'a [f64],
 
-        /// Tangent vectors at each knot (2 per knot: incoming and outgoing).
-        pub tangents: &'a Vec<[f64; DIMS]>,
+        /// Tangent vectors at each knot as a flat array (2 per knot: incoming and outgoing).
+        /// Layout: [tan0_in_x, tan0_in_y, ..., tan0_out_x, tan0_out_y, ..., ...]
+        pub tangents: &'a [f64],
     }
 
     /// Handle lengths and error for the 2 segments between 3 knots.
@@ -127,6 +125,20 @@ pub use self::types::{
     KnotAdjacentParams,
 };
 
+/// Get a point slice from the flat points array.
+#[inline]
+fn get_point<'a>(pd: &'a PointData, index: usize) -> &'a [f64] {
+    let start = index * pd.dims;
+    &pd.points[start..start + pd.dims]
+}
+
+/// Get a tangent slice from the flat tangents array.
+#[inline]
+fn get_tangent<'a>(pd: &'a PointData, tan_index: usize) -> &'a [f64] {
+    let start = tan_index * pd.dims;
+    &pd.tangents[start..start + pd.dims]
+}
+
 /// Advance knot index to next knot in array, wrapping at end.
 #[inline]
 fn knot_step_next_wrap(k_step: &mut usize, knots_end: usize) {
@@ -145,17 +157,17 @@ fn knot_step_next_wrap(k_step: &mut usize, knots_end: usize) {
 /// distance from the chord is chosen as the split point.
 pub fn knot_find_split_point(
     pd: &PointData,
-    knots: &Vec<Knot>,
+    knots: &[Knot],
     k_prev: &Knot,
     k_next: &Knot,
 ) -> usize {
     let mut split_point: usize = INVALID;
     let mut split_point_dist_best: f64 = -::std::f64::MAX;
 
-    let offset = &pd.points[k_prev.index];
+    let offset = get_point(pd, k_prev.index);
 
-    let mut v_plane = sub_vnvn(&pd.points[k_prev.index], &pd.points[k_next.index]);
-    normalize_vn(&mut v_plane);
+    let mut v_plane = sub_vnvn(get_point(pd, k_prev.index), get_point(pd, k_next.index), pd.dims);
+    normalize_vn(&mut v_plane[..pd.dims]);
 
     let knots_end = knots.len() - 1;
     let mut k_step = k_prev.index;
@@ -164,9 +176,9 @@ pub fn knot_find_split_point(
 
         if k_step != k_next.index {
             let knot = &knots[k_step];
-            let v_offset = sub_vnvn(&pd.points[knot.index], offset);
-            let v_proj = project_plane_vnvn_normalized(&v_offset, &v_plane);
-            let split_point_dist_test = len_squared_vn(&v_proj);
+            let v_offset = sub_vnvn(get_point(pd, knot.index), offset, pd.dims);
+            let v_proj = project_plane_vnvn_normalized(&v_offset[..pd.dims], &v_plane[..pd.dims], pd.dims);
+            let split_point_dist_test = len_squared_vn(&v_proj[..pd.dims]);
             if split_point_dist_test > split_point_dist_best {
                 split_point_dist_best = split_point_dist_test;
                 split_point = knot.index;
@@ -176,20 +188,20 @@ pub fn knot_find_split_point(
         }
     }
 
-    return split_point;
+    split_point
 }
 
 /// Find the knot furthest from the line between `k_prev` and `k_next` along a given axis.
 ///
-/// Similar to `knot_find_split_point`, but projects points onto the given
+/// Similar to #knot_find_split_point, but projects points onto the given
 /// plane normal instead of perpendicular to the chord. Used for corner
 /// detection to find split points that best separate angled segments.
 pub fn knot_find_split_point_on_axis(
     pd: &PointData,
-    knots: &Vec<Knot>,
+    knots: &[Knot],
     k_prev: &Knot,
     k_next: &Knot,
-    plane_no: &[f64; DIMS],
+    plane_no: &[f64],
 ) -> usize {
     let mut split_point: usize = INVALID;
     let mut split_point_dist_best: f64 = -::std::f64::MAX;
@@ -201,7 +213,7 @@ pub fn knot_find_split_point_on_axis(
 
         if k_step != k_next.index {
             let knot = &knots[k_step];
-            let split_point_dist_test = dot_vnvn(plane_no, &pd.points[knot.index]);
+            let split_point_dist_test = dot_vnvn(plane_no, get_point(pd, knot.index));
             if split_point_dist_test > split_point_dist_best {
                 split_point_dist_best = split_point_dist_test;
                 split_point = knot.index;
@@ -211,29 +223,131 @@ pub fn knot_find_split_point_on_axis(
         }
     }
 
-    return split_point;
+    split_point
 }
+
+/// Find the split point based on sign change of perpendicular distance.
+///
+/// This finds where the curve crosses the line between the two knots,
+/// selecting the crossing point with the largest perpendicular distance.
+///
+/// For N-dimensional support, we establish a reference perpendicular direction
+/// from the first point that deviates from the line, then measure signed distance
+/// as the dot product with that reference. This gives consistent "sides" in any dimension.
+///
+/// Wrapper for #split_point_find_sign_change that uses Knot structures.
+pub fn knot_find_split_point_sign_change(
+    pd: &PointData,
+    _knots: &[Knot],
+    k_prev: &Knot,
+    k_next: &Knot,
+) -> usize {
+    curve_fit_cubic::split_point_find_sign_change(
+        pd.points,
+        pd.points_len,
+        k_prev.index,
+        k_next.index,
+        pd.dims,
+    )
+}
+
+/// Find the split point with maximum perpendicular distance from the line-segment.
+///
+/// Wrapper for #split_point_find_max_distance that uses Knot structures.
+pub fn knot_find_split_point_max_distance(
+    pd: &PointData,
+    _knots: &[Knot],
+    k_prev: &Knot,
+    k_next: &Knot,
+) -> usize {
+    curve_fit_cubic::split_point_find_max_distance(
+        pd.points,
+        pd.points_len,
+        k_prev.index,
+        k_next.index,
+        pd.dims,
+    )
+}
+
+/// Find inflection point where curvature changes sign.
+///
+/// Wrapper for #split_point_find_inflection that uses Knot structures.
+pub fn knot_find_split_point_inflection(
+    pd: &PointData,
+    _knots: &[Knot],
+    k_prev: &Knot,
+    k_next: &Knot,
+) -> usize {
+    curve_fit_cubic::split_point_find_inflection(
+        pd.points,
+        pd.points_len,
+        k_prev.index,
+        k_next.index,
+        pd.dims,
+    )
+}
+
+/// Methods for calculating split points during refit.
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum SplitCalcMethod {
+    /// Find the point with maximum error from the fitted curve.
+    /// First to try: zero cost (reuses already-calculated refit_index).
+    MaxError = 0,
+    /// Find the point with maximum perpendicular distance from line-segment.
+    /// Good early candidate: always returns a valid result, good general-purpose fallback.
+    MaxDistance = 1,
+    /// Find inflection point where the curve changes from bending one way to the other.
+    /// Useful for S-curves: detects where bending direction changes.
+    ///
+    /// Try later: may return INVALID.
+    Inflection = 2,
+    /// Find the point where the curve crosses the line between endpoints (sign change).
+    /// Useful for S-curves: detects where the curve crosses the line-segment.
+    ///
+    /// Try last: may return INVALID.
+    SignChange = 3,
+}
+
+/// Array of split calculation methods to try, in order.
+const SPLIT_CALC_METHODS: &[SplitCalcMethod] = &[
+    SplitCalcMethod::MaxError,
+    SplitCalcMethod::MaxDistance,
+    SplitCalcMethod::Inflection,
+    SplitCalcMethod::SignChange,
+];
+
+/// Number of split calculation methods.
+const SPLIT_CALC_METHODS_NUM: usize = SPLIT_CALC_METHODS.len();
 
 
 /// Fit a curve segment and return error metrics.
 ///
 /// Returns (error_sq, error_index, [handle_left, handle_right]).
 fn knot_remove_error_value(
-    tan_l: &[f64; DIMS],
-    tan_r: &[f64; DIMS],
-    points_offset: &[[f64; DIMS]],
+    dims: usize,
+    tan_l: &[f64],
+    tan_r: &[f64],
+    points_offset: &[f64],
     points_offset_length_cache: &[f64],
 ) -> (f64, usize, [f64; 2]) {
-    let ((error_sq, error_index), handle_factor_l, handle_factor_r) =
-        curve_fit_single::curve_fit_cubic_to_points_single(
-            points_offset, points_offset_length_cache,
+    let points_len = points_offset.len() / dims;
+    let p0 = &points_offset[0..dims];
+    let p_last = &points_offset[(points_len - 1) * dims..];
+
+    let ((error_sq, error_index), handle_factor_l, handle_factor_r, _threshold_met) =
+        curve_fit_cubic::curve_fit_cubic_to_points_single(
+            points_offset, dims, points_offset_length_cache,
             tan_l, tan_r,
+            0.0,  // Pass 0.0 to disable early exits (like C does).
             );
-    return (
+    let sub_l = sub_vnvn(&handle_factor_l[..dims], p0, dims);
+    let sub_r = sub_vnvn(&handle_factor_r[..dims], p_last, dims);
+    (
         error_sq, error_index,
-        [dot_vnvn(tan_l, &sub_vnvn(&handle_factor_l, &points_offset[0])),
-         dot_vnvn(tan_r, &sub_vnvn(&handle_factor_r, &points_offset[points_offset.len() - 1]))],
-    );
+        [dot_vnvn(tan_l, &sub_l[..dims]),
+         dot_vnvn(tan_r, &sub_r[..dims])],
+    )
 }
 
 /// Calculate the number of points from `index_l` to `index_r` inclusive.
@@ -255,17 +369,19 @@ fn knot_span_length(index_l: usize, index_r: usize, points_len: usize) -> usize 
 pub fn knot_calc_curve_error_value_and_index(
     pd: &PointData,
     knot_l: &Knot, knot_r: &Knot,
-    tan_l: &[f64; DIMS],
-    tan_r: &[f64; DIMS],
+    tan_l: &[f64],
+    tan_r: &[f64],
 ) -> (f64, usize, [f64; 2]) {
     let points_offset_len = knot_span_length(knot_l.index, knot_r.index, pd.points_len);
 
     if points_offset_len != 2 {
-        let points_offset_end = knot_l.index + points_offset_len;
+        let points_offset_start = knot_l.index * pd.dims;
+        let points_offset_end = points_offset_start + points_offset_len * pd.dims;
         let mut result = knot_remove_error_value(
+            pd.dims,
             tan_l, tan_r,
-            &pd.points[knot_l.index..points_offset_end],
-            &pd.points_length_cache[knot_l.index..points_offset_end],
+            &pd.points[points_offset_start..points_offset_end],
+            &pd.points_length_cache[knot_l.index..knot_l.index + points_offset_len],
             );
 
         // Adjust the offset index to the global index & wrap if needed.
@@ -273,12 +389,13 @@ pub fn knot_calc_curve_error_value_and_index(
         if result.1 >= pd.points_len {
             result.1 -= pd.points_len;
         }
-        return result;
+
+        result
     } else {
         // No points between, use 1/3 handle length with no error as a fallback.
         debug_assert!(points_offset_len == 2);
         let handle_len = pd.points_length_cache[knot_l.index] / 3.0;
-        return (0.0, knot_l.index, [handle_len, handle_len]);
+        (0.0, knot_l.index, [handle_len, handle_len])
     }
 }
 
@@ -288,24 +405,26 @@ pub fn knot_calc_curve_error_value_and_index(
 pub fn knot_calc_curve_error_value(
     pd: &PointData,
     knot_l: &Knot, knot_r: &Knot,
-    tan_l: &[f64; DIMS],
-    tan_r: &[f64; DIMS],
+    tan_l: &[f64],
+    tan_r: &[f64],
 ) -> (f64, [f64; 2]) {
     let points_offset_len = knot_span_length(knot_l.index, knot_r.index, pd.points_len);
 
     if points_offset_len != 2 {
-        let points_offset_end = knot_l.index + points_offset_len;
+        let points_offset_start = knot_l.index * pd.dims;
+        let points_offset_end = points_offset_start + points_offset_len * pd.dims;
         let result = knot_remove_error_value(
+            pd.dims,
             tan_l, tan_r,
-            &pd.points[knot_l.index..points_offset_end],
-            &pd.points_length_cache[knot_l.index..points_offset_end],
+            &pd.points[points_offset_start..points_offset_end],
+            &pd.points_length_cache[knot_l.index..knot_l.index + points_offset_len],
             );
-        return (result.0, result.2);
+        (result.0, result.2)
     } else {
         // No points between, use 1/3 handle length with no error as a fallback.
         debug_assert!(points_offset_len == 2);
         let handle_len = pd.points_length_cache[knot_l.index] / 3.0;
-        return (0.0, [handle_len, handle_len]);
+        (0.0, [handle_len, handle_len])
     }
 }
 
@@ -316,10 +435,11 @@ pub mod refine_remove {
     use super::{
         INVALID,
         knot_calc_curve_error_value,
+        get_tangent,
         Knot,
         PointData,
     };
-    use ::intern::min_heap;
+    use crate::intern::min_heap;
 
     /// State stored in the heap for potential knot removal.
     ///
@@ -339,9 +459,9 @@ pub mod refine_remove {
     /// is below the threshold.
     fn knot_remove_error_recalculate(
         pd: &PointData,
-        heap: &mut min_heap::MinHeap<f64, KnotRemoveState>,
-        knots: &Vec<Knot>,
-        knots_handle: &mut Vec<min_heap::NodeHandle>,
+        heap: &mut min_heap::MinHeap<(f64, usize), KnotRemoveState>,
+        knots: &[Knot],
+        knots_handle: &mut [min_heap::NodeHandle],
         k_curr: &Knot,
         error_max_sq: f64,
     ) {
@@ -351,17 +471,18 @@ pub mod refine_remove {
             let k_prev = &knots[k_curr.prev];
             let k_next = &knots[k_curr.next];
 
-            knot_calc_curve_error_value(
+            let result = knot_calc_curve_error_value(
                 pd, k_prev, k_next,
-                &pd.tangents[k_prev.tan[1]],
-                &pd.tangents[k_next.tan[0]])
+                get_tangent(pd, k_prev.tan[1]),
+                get_tangent(pd, k_next.tan[0]));
+            result
         };
 
         let k_curr_heap_node = &mut knots_handle[k_curr.index];
         if fit_error_max_sq < error_max_sq {
             heap.insert_or_update(
                 k_curr_heap_node,
-                fit_error_max_sq,
+                (fit_error_max_sq, k_curr.index),
                 KnotRemoveState {
                     index: k_curr.index,
                     handles: handles,
@@ -384,12 +505,14 @@ pub mod refine_remove {
     /// This is the first pass of the curve refinement algorithm.
     pub fn curve_incremental_simplify(
         pd: &PointData,
-        knots: &mut Vec<Knot>,
-        knots_handle: &mut Vec<min_heap::NodeHandle>,
+        knots: &mut [Knot],
+        knots_handle: &mut [min_heap::NodeHandle],
         knots_len_remaining: &mut usize,
         error_max_sq: f64,
     ) {
-        let mut heap = min_heap::MinHeap::<f64, KnotRemoveState>::with_capacity(knots.len());
+        // Use (error, index) tuple for deterministic ordering when errors are equal.
+        // This matches C's implicit ordering from insertion order in the binary heap.
+        let mut heap = min_heap::MinHeap::<(f64, usize), KnotRemoveState>::with_capacity(knots.len());
 
         for k_index in 0..knots.len() {
             let k_curr = &knots[k_index];
@@ -402,7 +525,7 @@ pub mod refine_remove {
             }
         }
 
-        while let Some((error_sq, r)) = heap.pop_min_with_value() {
+        while let Some(((error_sq, _), r)) = heap.pop_min_with_value() {
             knots_handle[r.index] = min_heap::NodeHandle::INVALID;
 
             let k_next_index;
@@ -467,11 +590,12 @@ pub mod refine_refit {
         knot_calc_curve_error_value,
         knot_calc_curve_error_value_and_index,
         knot_find_split_point,
+        get_tangent,
         Knot,
         KnotAdjacentParams,
         PointData,
     };
-    use ::intern::min_heap;
+    use crate::intern::min_heap;
 
     /// Result from refining a refit index in one direction.
     struct RefineResult {
@@ -488,7 +612,7 @@ pub mod refine_refit {
     /// `dir`: -1 to search toward `k_prev`, 1 to search toward `k_next`.
     fn knot_refit_index_refine(
         pd: &PointData,
-        knots: &Vec<Knot>,
+        knots: &[Knot],
         k_prev: &Knot,
         k_next: &Knot,
         index_refit: usize,
@@ -520,8 +644,8 @@ pub mod refine_refit {
             let k_test = &knots[i];
             let (error_sq_prev, handles_prev_test) = knot_calc_curve_error_value(
                 pd, k_prev, k_test,
-                &pd.tangents[k_prev.tan[1]],
-                &pd.tangents[k_test.tan[0]],
+                get_tangent(pd, k_prev.tan[1]),
+                get_tangent(pd, k_test.tan[0]),
             );
             if error_sq_prev >= cost_sq_max {
                 break;
@@ -529,8 +653,8 @@ pub mod refine_refit {
 
             let (error_sq_next, handles_next_test) = knot_calc_curve_error_value(
                 pd, k_test, k_next,
-                &pd.tangents[k_test.tan[1]],
-                &pd.tangents[k_next.tan[0]],
+                get_tangent(pd, k_test.tan[1]),
+                get_tangent(pd, k_next.tan[0]),
             );
             if error_sq_next >= cost_sq_max {
                 break;
@@ -545,7 +669,7 @@ pub mod refine_refit {
             result.params.error_sq_next = error_sq_next;
             result.is_refined = true;
         }
-        return result;
+        result
     }
 
     /// State stored in the heap for potential knot repositioning.
@@ -560,18 +684,11 @@ pub mod refine_refit {
     }
 
     /// (Re)calculate the error and optimal refit position for a knot.
-    ///
-    /// This function finds the best position for `k_curr` between its neighbors
-    /// `k_prev` and `k_next`. It tests potential positions and calculates the
-    /// resulting curve fit error for each.
-    ///
-    /// When `use_optimize_exhaustive` is true, all positions between neighbors
-    /// are tested. Otherwise, a faster heuristic based on the split point is used.
     fn knot_refit_error_recalculate(
         pd: &PointData,
-        heap: &mut min_heap::MinHeap<f64, KnotRefitState>,
-        knots: &Vec<Knot>,
-        knots_handle: &mut Vec<min_heap::NodeHandle>,
+        heap: &mut min_heap::MinHeap<(f64, usize), KnotRefitState>,
+        knots: &[Knot],
+        knots_handle: &mut [min_heap::NodeHandle],
         k_curr: &Knot,
         error_max_sq: f64,
         use_optimize_exhaustive: bool,
@@ -591,16 +708,16 @@ pub mod refine_refit {
             let (fit_error_max_sq, fit_error_index, handles) =
                 knot_calc_curve_error_value_and_index(
                     pd, k_prev, k_next,
-                    &pd.tangents[k_prev.tan[1]],
-                    &pd.tangents[k_next.tan[0]],
+                    get_tangent(pd, k_prev.tan[1]),
+                    get_tangent(pd, k_next.tan[0]),
                     );
 
             if fit_error_max_sq < error_max_sq {
                 // Always perform removal before refitting, (make a negative number)
                 heap.insert_or_update(
                     k_curr_heap_node,
-                    // Weight for the greatest improvement.
-                    fit_error_max_sq - error_max_sq,
+                    // Weight for the greatest improvement, with index as tiebreaker.
+                    (fit_error_max_sq - error_max_sq, k_curr.index),
                     KnotRefitState {
                         index: k_curr.index,
                         // INVALID == remove
@@ -623,16 +740,6 @@ pub mod refine_refit {
             k_refit_index = knot_find_split_point(pd, knots, k_prev, k_next);
         }
 
-        if !use_optimize_exhaustive {
-            if (k_refit_index == INVALID) || (k_refit_index == k_curr.index) {
-                if *k_curr_heap_node != min_heap::NodeHandle::INVALID {
-                    heap.remove(*k_curr_heap_node);
-                    *k_curr_heap_node = min_heap::NodeHandle::INVALID;
-                    return;
-                }
-            }
-        }
-
         let cost_sq_src_max = k_prev.fit_error_sq_next.max(k_curr.fit_error_sq_next);
         debug_assert!(cost_sq_src_max <= error_max_sq);
 
@@ -644,16 +751,16 @@ pub mod refine_refit {
             let (fit_error_prev, handles_prev) =
                 knot_calc_curve_error_value(
                     pd, k_prev, k_refit,
-                    &pd.tangents[k_prev.tan[1]],
-                    &pd.tangents[k_refit.tan[0]],
+                    get_tangent(pd, k_prev.tan[1]),
+                    get_tangent(pd, k_refit.tan[0]),
                 );
 
             if fit_error_prev < error_max_sq {
                 let (fit_error_next, handles_next) =
                     knot_calc_curve_error_value(
                         pd, k_refit, k_next,
-                        &pd.tangents[k_refit.tan[1]],
-                        &pd.tangents[k_next.tan[0]],
+                        get_tangent(pd, k_refit.tan[1]),
+                        get_tangent(pd, k_next.tan[0]),
                     );
                 if fit_error_next < error_max_sq {
                     return Some((
@@ -662,14 +769,8 @@ pub mod refine_refit {
                     ));
                 }
             }
-            return None;
+            None
         }
-
-        // Instead of using the highest error value,
-        // search for *every* possible split point and test it.
-        // This is _not_ meant for typical usage (since its obviously very in-efficient).
-        //
-        // Nevertheless its interesting to have a way to attempt the best possible result.
 
         // cache result of 'knot_calc_curve_error_value_pair_above_error_or_none'
         let mut refit_result_or_none: Option<([f64; 2], f64, [f64; 2], f64)> = None;
@@ -707,17 +808,57 @@ pub mod refine_refit {
                 k_test_index += 1;
             }
         } else {
-            refit_result_or_none =
-                knot_calc_curve_error_value_pair_above_error_or_none(
-                    pd, k_prev, &knots[k_refit_index], k_next, cost_sq_src_max);
+            // Try multiple split calculation methods and pick the best one.
+            let mut best_cost_sq_max = f64::MAX;
+
+            // Track all indices tried to avoid redundant error calculations.
+            let mut tried_indices: [usize; super::SPLIT_CALC_METHODS_NUM] = [INVALID; super::SPLIT_CALC_METHODS_NUM];
+            let mut tried_indices_num: usize = 0;
+
+            for method in super::SPLIT_CALC_METHODS {
+                let test_refit_index = match method {
+                    super::SplitCalcMethod::MaxError => k_refit_index,  // Already calculated above
+                    super::SplitCalcMethod::SignChange => super::knot_find_split_point_sign_change(pd, knots, k_prev, k_next),
+                    super::SplitCalcMethod::MaxDistance => super::knot_find_split_point_max_distance(pd, knots, k_prev, k_next),
+                    super::SplitCalcMethod::Inflection => super::knot_find_split_point_inflection(pd, knots, k_prev, k_next),
+                };
+
+                if test_refit_index == INVALID || test_refit_index == k_curr.index {
+                    continue;
+                }
+
+                // Skip if this index was already evaluated by a previous method.
+                let already_tried = tried_indices[..tried_indices_num].contains(&test_refit_index);
+                if already_tried {
+                    continue;
+                }
+                tried_indices[tried_indices_num] = test_refit_index;
+                tried_indices_num += 1;
+
+                if let Some(fit_result_test) =
+                    knot_calc_curve_error_value_pair_above_error_or_none(
+                        pd, k_prev, &knots[test_refit_index], k_next, cost_sq_src_max)
+                {
+                    let test_cost_sq_max = fit_result_test.1.max(fit_result_test.3);
+                    if test_cost_sq_max < best_cost_sq_max {
+                        best_cost_sq_max = test_cost_sq_max;
+                        k_refit_index = test_refit_index;
+                        refit_result_or_none = Some(fit_result_test);
+
+                        // Perfect fit, no point trying other methods.
+                        if best_cost_sq_max == 0.0 {
+                            break;
+                        }
+                    }
+                }
+            }
 
             // Local refinement: search neighbors for a better refit index.
-            // Search both directions independently to avoid bias.
-            // Skip when error is zero (e.g. exactly straight lines).
             if let Some((_handles_prev, fit_error_dst_prev, _handles_next, fit_error_dst_next)) =
                 refit_result_or_none
             {
                 let cost_sq_dst_max_init = fit_error_dst_prev.max(fit_error_dst_next);
+
                 if cost_sq_dst_max_init > 0.0 {
                     // Search toward k_prev (dir=-1) and toward k_next (dir=1).
                     let scan_prev = knot_refit_index_refine(
@@ -728,10 +869,9 @@ pub mod refine_refit {
                     // Pick the best result from both directions.
                     if scan_prev.is_refined || scan_next.is_refined {
                         let scan = if scan_prev.is_refined && scan_next.is_refined {
-                            // Both directions found improvements, pick the best.
-                            // In the unlikely event of a tie, minimum error breaks it.
                             let cost_sq_max_prev = scan_prev.params.error_sq_prev.max(scan_prev.params.error_sq_next);
                             let cost_sq_max_next = scan_next.params.error_sq_prev.max(scan_next.params.error_sq_next);
+
                             if cost_sq_max_prev < cost_sq_max_next {
                                 &scan_prev
                             } else if cost_sq_max_next < cost_sq_max_prev {
@@ -768,8 +908,8 @@ pub mod refine_refit {
             debug_assert!(fit_error_dst_max_sq < cost_sq_src_max);
             heap.insert_or_update(
                 k_curr_heap_node,
-                // Weight for the greatest improvement.
-                cost_sq_src_max - fit_error_dst_max_sq,
+                // Weight for the greatest improvement, with index as tiebreaker.
+                (cost_sq_src_max - fit_error_dst_max_sq, k_curr.index),
                 KnotRefitState {
                     index: k_curr.index,
                     index_refit: k_refit_index,
@@ -791,39 +931,35 @@ pub mod refine_refit {
     }
 
     /// Re-adjust the curves by re-fitting points.
-    ///
-    /// Test the error from moving each knot to positions between its adjacent knots.
-    /// If a better position is found (lower error), the knot is moved there.
-    ///
-    /// Parameters:
-    /// - `use_optimize_exhaustive`: When true, search all positions between adjacent knots
-    ///   for the optimal refit location. When false, use a faster heuristic.
-    /// - `use_refit_remove`: When true, remove knots that fall below the error threshold
-    ///   during the refit process.
     pub fn curve_incremental_simplify_refit(
         pd: &PointData,
-        knots: &mut Vec<Knot>,
-        knots_handle: &mut Vec<min_heap::NodeHandle>,
+        knots: &mut [Knot],
+        knots_handle: &mut [min_heap::NodeHandle],
         knots_len_remaining: &mut usize,
         error_max_sq: f64,
         use_optimize_exhaustive: bool,
         use_refit_remove: bool,
     ) {
+        // Use (error, index) tuple for deterministic ordering when errors are equal.
         let mut heap =
-            min_heap::MinHeap::<f64, KnotRefitState>::with_capacity(*knots_len_remaining);
+            min_heap::MinHeap::<(f64, usize), KnotRefitState>::with_capacity(*knots_len_remaining);
 
+        let mut _added_count = 0;
         for k_index in 0..knots.len() {
             let k_curr = &knots[k_index];
             if (k_curr.no_remove == false) &&
                (k_curr.is_remove == false) &&
                (k_curr.is_corner == false)
             {
+                let old_handle = knots_handle[k_index];
                 knot_refit_error_recalculate(
                     pd, &mut heap, knots, knots_handle, k_curr,
                     error_max_sq, use_optimize_exhaustive, use_refit_remove);
+                if knots_handle[k_index] != old_handle {
+                    _added_count += 1;
+                }
             }
         }
-
 
         while let Some(r) = heap.pop_min() {
             knots_handle[r.index] = min_heap::NodeHandle::INVALID;
@@ -837,20 +973,29 @@ pub mod refine_refit {
                     k_next_index = k_old.next;
                 }
 
-                if r.index_refit == INVALID {
-                    // remove
-                } else {
+                knots[k_prev_index].handles[1] = r.fit_params.handles_prev[0];
+                knots[k_next_index].handles[0] = r.fit_params.handles_next[1];
+
+                // Update error values for changed segments.
+                //
+                // Before:
+                // - `k_prev - (error_sq_prev) -> k_refit - (error_sq_next) -> k_next`.
+                // After:
+                // - `k_prev->fit_error_sq_next := error_sq_prev`.
+                // - `k_refit->fit_error_sq_next := error_sq_next`.
+                // - `k_next->fit_error_sq_next`: unchanged (segment beyond k_next unaffected).
+                knots[k_prev_index].fit_error_sq_next = r.fit_params.error_sq_prev;
+
+                if r.index_refit != INVALID {
                     let k_refit = &mut knots[r.index_refit];
                     k_refit.handles[0] = r.fit_params.handles_prev[1];
                     k_refit.handles[1] = r.fit_params.handles_next[0];
+                    k_refit.fit_error_sq_next = r.fit_params.error_sq_next;
                 }
-
-                knots[k_prev_index].handles[1] = r.fit_params.handles_prev[0];
-                knots[k_next_index].handles[0] = r.fit_params.handles_next[1];
             }
             // finished with 'r'
 
-            // XXX, check this is OK
+            // Skip if curve is too small to simplify further.
             if unlikely!(*knots_len_remaining <= 2) {
                 continue;
             }
@@ -866,21 +1011,15 @@ pub mod refine_refit {
                 knots[k_next_index].prev = k_prev_index;
                 knots[k_prev_index].next = k_next_index;
 
-                knots[k_prev_index].fit_error_sq_next = r.fit_params.error_sq_prev;
-
                 *knots_len_remaining -= 1;
             } else {
                 // Remove ourselves.
                 knots[k_next_index].prev = r.index_refit;
                 knots[k_prev_index].next = r.index_refit;
 
-                knots[k_prev_index].fit_error_sq_next = r.fit_params.error_sq_prev;
-
                 let k_refit = &mut knots[r.index_refit];
                 k_refit.prev = k_prev_index;
                 k_refit.next = k_next_index;
-
-                k_refit.fit_error_sq_next = r.fit_params.error_sq_next;
 
                 k_refit.is_remove = false;
             }
@@ -905,25 +1044,24 @@ pub mod refine_refit {
 // end refine_refit
 
 /// Corner detection pass: identify and collapse sharp angle transitions.
-///
-/// Finds adjacent knots where the tangent angle exceeds the threshold and
-/// collapses them into corner knots (where tangents are discontinuous).
 pub mod refine_corner {
     use super::{
         INVALID,
         knot_calc_curve_error_value,
         knot_find_split_point_on_axis,
+        get_point,
+        get_tangent,
         Knot,
         KnotAdjacentParams,
         PointData,
     };
-    use ::intern::math_vector::{
+    use crate::intern::math_vector::{
         dot_vnvn,
         len_squared_vnvn,
         project_vnvn_normalized,
         sub_vnvn,
     };
-    use ::intern::min_heap;
+    use crate::intern::min_heap;
 
     /// Result of collapsing a corner.
     #[derive(Copy, Clone)]
@@ -931,7 +1069,7 @@ pub mod refine_corner {
         /// Index of the knot being considered for corner collapse.
         index: usize,
         /// Indices of adjacent knots [k_prev, k_next] whose tangents will be
-        /// collapsed into this corner. The corner inherits tangents from these neighbors.
+        /// collapsed into this corner.
         index_pair: [usize; 2],
         /// Handle lengths and errors for the collapsed corner.
         fit_params: KnotAdjacentParams,
@@ -940,8 +1078,8 @@ pub mod refine_corner {
     /// (Re)calculate the error incurred from turning this into a corner.
     fn knot_corner_error_recalculate(
         pd: &PointData,
-        heap: &mut min_heap::MinHeap<f64, KnotCornerState>,
-        knots_handle: &mut Vec<min_heap::NodeHandle>,
+        heap: &mut min_heap::MinHeap<(f64, usize), KnotCornerState>,
+        knots_handle: &mut [min_heap::NodeHandle],
         k_split: &Knot,
         k_prev: &Knot,
         k_next: &Knot,
@@ -959,22 +1097,22 @@ pub mod refine_corner {
             let (fit_error_dst_prev, handles_prev) =
                 knot_calc_curve_error_value(
                     pd, k_prev, k_split,
-                    &pd.tangents[k_prev.tan[1]],
-                    &pd.tangents[k_prev.tan[1]],
+                    get_tangent(pd, k_prev.tan[1]),
+                    get_tangent(pd, k_prev.tan[1]),
                     );
             if fit_error_dst_prev < error_max_sq {
                 let (fit_error_dst_next, handles_next) =
                     knot_calc_curve_error_value(
                         pd, k_split, k_next,
-                        &pd.tangents[k_next.tan[0]],
-                        &pd.tangents[k_next.tan[0]],
+                        get_tangent(pd, k_next.tan[0]),
+                        get_tangent(pd, k_next.tan[0]),
                         );
                 if fit_error_dst_next < error_max_sq {
                     // _must_ be assigned to k_split, later
                     heap.insert_or_update(
                         k_split_heap_node,
-                        // Weight for the greatest improvement.
-                        fit_error_dst_prev.max(fit_error_dst_next),
+                        // Weight for the greatest improvement, with index as tiebreaker.
+                        (fit_error_dst_prev.max(fit_error_dst_next), k_split.index),
                         KnotCornerState {
                             index: k_split.index,
                             index_pair: [k_prev.index, k_next.index],
@@ -999,30 +1137,18 @@ pub mod refine_corner {
     }
 
     /// Attempt to collapse close knots into corners.
-    ///
-    /// This function finds adjacent knots that exceed the angle limit and
-    /// collapses them into a single corner knot, or removes them entirely
-    /// (depending on their error values).
-    ///
-    /// A corner is created when two adjacent curve segments meet at a sharp angle.
-    /// The knot at this junction is marked as a corner, which prevents its
-    /// tangent from being shared between the two segments.
-    ///
-    /// Parameters:
-    /// - `error_max_sq`: Maximum allowed squared error for the curve.
-    /// - `error_sq_collapse_max`: Maximum squared error for collapsing adjacent knots.
-    /// - `corner_angle`: Angle threshold (in radians) above which knots become corners.
     pub fn curve_incremental_simplify_corners(
         pd: &PointData,
-        knots: &mut Vec<Knot>,
-        knots_handle: &mut Vec<min_heap::NodeHandle>,
+        knots: &mut [Knot],
+        knots_handle: &mut [min_heap::NodeHandle],
         knots_len_remaining: &mut usize,
         error_max_sq: f64,
         error_sq_collapse_max: f64,
         corner_angle: f64,
     ) {
         // don't pre-allocate, since its likely there are no corners
-        let mut heap = min_heap::MinHeap::<f64, KnotCornerState>::with_capacity(0);
+        // Use (error, index) tuple for deterministic ordering when errors are equal.
+        let mut heap = min_heap::MinHeap::<(f64, usize), KnotCornerState>::with_capacity(0);
 
         let corner_angle_cos = corner_angle.cos();
 
@@ -1043,14 +1169,15 @@ pub mod refine_corner {
             {
                 // Angle outside threshold
                 if dot_vnvn(
-                    &pd.tangents[k_prev.tan[0]],
-                    &pd.tangents[k_next.tan[1]]) < corner_angle_cos
+                    get_tangent(pd, k_prev.tan[0]),
+                    get_tangent(pd, k_next.tan[1])) < corner_angle_cos
                 {
                     // Measure distance projected onto a plane,
                     //since the points may be offset along their own tangents.
                     let plane_no = sub_vnvn(
-                        &pd.tangents[k_next.tan[0]],
-                        &pd.tangents[k_prev.tan[1]],
+                        get_tangent(pd, k_next.tan[0]),
+                        get_tangent(pd, k_prev.tan[1]),
+                        pd.dims,
                         );
 
                     // Compare 2x so as to allow both to be changed
@@ -1060,29 +1187,29 @@ pub mod refine_corner {
                         knots,
                         k_prev,
                         k_next,
-                        &plane_no,
+                        &plane_no[..pd.dims],
                         );
 
                     if k_split_index != INVALID {
-                        let co_prev  = &pd.points[k_prev.index];
-                        let co_next  = &pd.points[k_next.index];
-                        let co_split = &pd.points[k_split_index];
+                        let co_prev  = get_point(pd, k_prev.index);
+                        let co_next  = get_point(pd, k_next.index);
+                        let co_split = get_point(pd, k_split_index);
 
                         let k_proj_ref = project_vnvn_normalized(
-                            co_prev, &pd.tangents[k_prev.tan[1]]);
+                            co_prev, get_tangent(pd, k_prev.tan[1]), pd.dims);
                         let k_proj_split = project_vnvn_normalized(
-                            co_split, &pd.tangents[k_prev.tan[1]]);
+                            co_split, get_tangent(pd, k_prev.tan[1]), pd.dims);
 
                         if len_squared_vnvn(
-                            &k_proj_ref, &k_proj_split) < error_sq_collapse_max
+                            &k_proj_ref[..pd.dims], &k_proj_split[..pd.dims]) < error_sq_collapse_max
                         {
                             let k_proj_ref = project_vnvn_normalized(
-                                co_next, &pd.tangents[k_next.tan[0]]);
+                                co_next, get_tangent(pd, k_next.tan[0]), pd.dims);
                             let k_proj_split = project_vnvn_normalized(
-                                co_split, &pd.tangents[k_next.tan[0]]);
+                                co_split, get_tangent(pd, k_next.tan[0]), pd.dims);
 
                             if len_squared_vnvn(
-                                &k_proj_ref, &k_proj_split) < error_sq_collapse_max
+                                &k_proj_ref[..pd.dims], &k_proj_split[..pd.dims]) < error_sq_collapse_max
                             {
                                 knot_corner_error_recalculate(
                                     pd,
@@ -1141,8 +1268,8 @@ pub mod refine_corner {
                 k_split.next = k_next_index;
 
                 // Update tangents
-                k_split.tan[0] = tan_prev; // knots[k_prev_index].tan[1];
-                k_split.tan[1] = tan_next; // knots[k_next_index].tan[0];
+                k_split.tan[0] = tan_prev;
+                k_split.tan[1] = tan_next;
 
                 // Own handles
                 k_split.handles[0] = c.fit_params.handles_prev[1];

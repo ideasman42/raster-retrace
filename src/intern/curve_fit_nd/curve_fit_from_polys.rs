@@ -12,9 +12,11 @@ const USE_REFIT: bool = true;
 /// Allow removing knots during the refit pass.
 const USE_REFIT_REMOVE: bool = true;
 /// Scale factor for corner detection error threshold.
-const CORNER_SCALE: f64 = 2.0;  // this is weak, should be made configurable.
+/// The C implementation uses 3.0 for the collapse threshold, allowing corners
+/// to be collapsed with up to 9x the squared error tolerance.
+const CORNER_SCALE: f64 = 3.0;
 
-use ::intern::math_vector::{
+use crate::intern::math_vector::{
     add_vnvn,
     copy_vnvn,
     madd_vnvn_fl,
@@ -22,14 +24,10 @@ use ::intern::math_vector::{
     normalized_vnvn_with_len,
     sq,
     zero_vn,
+    is_finite_vn,
 };
 
-use ::intern::min_heap;
-
-/// Number of dimensions for curve fitting (2D points).
-const DIMS: usize = ::intern::math_vector::DIMS;
-
-use std::collections::LinkedList;
+use crate::intern::min_heap;
 
 // Import refit module types and functions
 use super::curve_fit_cubic_refit::{
@@ -50,49 +48,90 @@ pub enum TraceMode {
     Centerline,
 }
 
+/// Get a point slice from a flat points array.
+#[inline]
+fn get_point(points: &[f64], dims: usize, index: usize) -> &[f64] {
+    let start = index * dims;
+    &points[start..start + dims]
+}
+
+/// Get a mutable tangent slice from a flat tangents array.
+#[inline]
+fn get_tangent_mut(tangents: &mut [f64], dims: usize, tan_index: usize) -> &mut [f64] {
+    let start = tan_index * dims;
+    &mut tangents[start..start + dims]
+}
+
 
 /// Fit cubic bezier curves to a single polygon.
 ///
-/// Takes a list of points and fits bezier curves that approximate the polygon
-/// within the specified error threshold. Optionally detects corners where the
-/// curve direction changes sharply.
+/// Takes a list of points (as a flat array) and fits bezier curves that approximate
+/// the polygon within the specified error threshold.
 ///
-/// Returns a list of cubic bezier segments, where each segment is represented
-/// as `[handle_in, point, handle_out]`.
+/// # Arguments
+/// * `points_orig` - The input points as a flat array [x0, y0, z0, x1, y1, z1, ...]
+/// * `dims` - Number of dimensions per point (e.g., 2 for 2D, 3 for 3D)
+/// * `is_cyclic` - Whether the curve is closed/cyclic
+/// * `error_threshold` - Maximum allowed error for curve fitting
+/// * `corner_angle` - Angle threshold for automatic corner detection (PI = no detection)
+/// * `use_optimize_exhaustive` - Use exhaustive optimization (slower but better)
+///
+/// Returns a tuple of:
+/// - A flat array of cubic bezier segments [h_in_x, h_in_y, ..., p_x, p_y, ..., h_out_x, h_out_y, ...]
+/// - A list of original point indices corresponding to each bezier segment.
 pub fn fit_poly_single(
-    // points_orig: &[[f64; 2]],
-    points_orig: &Vec<[f64; DIMS]>,
+    points_orig: &[f64],
+    dims: usize,
     is_cyclic: bool,
     error_threshold: f64,
     corner_angle: f64,
     use_optimize_exhaustive: bool,
-) -> Vec<[[f64; DIMS]; 3]> {
-    use ::intern::math_vector::{
-        is_finite_vn,
-    };
+) -> (Vec<f64>, Vec<usize>) {
+    fit_poly_single_with_corners(
+        points_orig,
+        dims,
+        is_cyclic,
+        error_threshold,
+        corner_angle,
+        use_optimize_exhaustive,
+        None,
+    )
+}
 
-    // Double size to allow extracting wrapped contiguous slices across start/end boundaries.
-    let knots_len = points_orig.len();
-    let points_len = points_orig.len();
-    let points = if is_cyclic {
-        [points_orig.as_slice(), points_orig.as_slice()].concat()
+/// Fit cubic bezier curves to a single polygon with optional pre-defined corners.
+///
+/// See [`fit_poly_single`] for basic documentation.
+pub fn fit_poly_single_with_corners(
+    points_orig: &[f64],
+    dims: usize,
+    is_cyclic: bool,
+    error_threshold: f64,
+    corner_angle: f64,
+    use_optimize_exhaustive: bool,
+    corners: Option<&[usize]>,
+) -> (Vec<f64>, Vec<usize>) {
+    use std::borrow::Cow;
+
+    let points_len = points_orig.len() / dims;
+    let knots_len = points_len;
+
+    // For cyclic curves, duplicate the points array to allow contiguous slicing
+    // across the start/end boundary (matching C behavior).
+    // For non-cyclic curves, use the original slice directly (zero-copy).
+    let points: Cow<'_, [f64]> = if is_cyclic {
+        Cow::Owned([points_orig, points_orig].concat())
     } else {
-        // TODO, we don't need to duplicate here,
-        // find a way to use the original array!
-        [points_orig.as_slice()].concat()
+        Cow::Borrowed(points_orig)
     };
 
-    // del_var!(points_orig);  // TODO
-
-    let mut knots: Vec<Knot> =
-        Vec::with_capacity(knots_len);
+    let mut knots: Vec<Knot> = Vec::with_capacity(knots_len);
     let mut knots_handle: Vec<min_heap::NodeHandle> =
         vec![min_heap::NodeHandle::INVALID; knots_len];
 
     let use_corner = corner_angle < ::std::f64::consts::PI;
 
     for i in 0..knots_len {
-        assert!(is_finite_vn(&points_orig[i]));
+        assert!(is_finite_vn(get_point(points_orig, dims, i)));
         knots.push(Knot {
             next: i.wrapping_add(1),
             prev: i.wrapping_sub(1),
@@ -120,53 +159,61 @@ pub fn fit_poly_single(
     }
 
     // All values will be written to, simplest to initialize to dummy values for now.
+    // Double the cache for cyclic curves to match C behavior.
     let mut points_length_cache: Vec<f64> = vec![-1.0; points_len * if is_cyclic { 2 } else { 1 }];
-    let mut tangents: Vec<[f64; DIMS]> = vec![[-1.0; DIMS]; knots_len * 2];
+    // Tangents: 2 per knot (incoming and outgoing), each with `dims` components
+    let mut tangents: Vec<f64> = vec![-1.0; knots_len * 2 * dims];
 
     // Initialize tangents,
     // also set the values for knot handles since some may not collapse.
 
     if knots_len < 2 {
         for (i, k) in (&mut knots).iter_mut().enumerate() {
-            zero_vn(&mut tangents[k.tan[0]]);
-            zero_vn(&mut tangents[k.tan[1]]);
+            zero_vn(get_tangent_mut(&mut tangents, dims, k.tan[0]));
+            zero_vn(get_tangent_mut(&mut tangents, dims, k.tan[1]));
             k.handles[0] = 0.0;
             k.handles[1] = 0.0;
             points_length_cache[i] = 0.0;
         }
     } else if is_cyclic {
         let (mut tan_prev, mut len_prev) = normalized_vnvn_with_len(
-            &points[knots_len - 2], &points[knots_len - 1]);
+            get_point(&points, dims, knots_len - 2),
+            get_point(&points, dims, knots_len - 1),
+            dims);
 
         let mut i_curr = knots.len() - 1;
         for i_next in 0..knots.len() {
             let k = &mut knots[i_curr];
 
             let (tan_next, len_next) = normalized_vnvn_with_len(
-                &points[i_curr], &points[i_next]);
+                get_point(&points, dims, i_curr),
+                get_point(&points, dims, i_next),
+                dims);
             points_length_cache[i_next] = len_next;
 
-            let mut t = add_vnvn(&tan_prev, &tan_next);
-            normalize_vn(&mut t);
-            assert!(is_finite_vn(&t));
-            copy_vnvn(&mut tangents[k.tan[0]], &t);
-            copy_vnvn(&mut tangents[k.tan[1]], &t);
+            let mut t = add_vnvn(&tan_prev[..dims], &tan_next[..dims], dims);
+            normalize_vn(&mut t[..dims]);
+            assert!(is_finite_vn(&t[..dims]));
+            copy_vnvn(get_tangent_mut(&mut tangents, dims, k.tan[0]), &t[..dims]);
+            copy_vnvn(get_tangent_mut(&mut tangents, dims, k.tan[1]), &t[..dims]);
 
             k.handles[0] = len_prev /  3.0;
             k.handles[1] = len_next / -3.0;
 
-            copy_vnvn(&mut tan_prev, &tan_next);
+            tan_prev = tan_next;
             len_prev = len_next;
             i_curr = i_next;
         }
     } else {
         points_length_cache[0] = 0.0;
         let (mut tan_prev, mut len_prev) = normalized_vnvn_with_len(
-            &points[0], &points[1]);
+            get_point(&points, dims, 0),
+            get_point(&points, dims, 1),
+            dims);
         points_length_cache[1] = len_prev;
 
-        copy_vnvn(&mut tangents[knots[0].tan[0]], &tan_prev);
-        copy_vnvn(&mut tangents[knots[0].tan[1]], &tan_prev);
+        copy_vnvn(get_tangent_mut(&mut tangents, dims, knots[0].tan[0]), &tan_prev[..dims]);
+        copy_vnvn(get_tangent_mut(&mut tangents, dims, knots[0].tan[1]), &tan_prev[..dims]);
         knots[0].handles[0] = len_prev /  3.0;
         knots[0].handles[1] = len_prev / -3.0;
 
@@ -174,40 +221,78 @@ pub fn fit_poly_single(
         for i_next in 2..knots.len() {
             let k = &mut knots[i_curr];
             let (tan_next, len_next) = normalized_vnvn_with_len(
-                &points[i_curr], &points[i_next]);
+                get_point(&points, dims, i_curr),
+                get_point(&points, dims, i_next),
+                dims);
             points_length_cache[i_next] = len_next;
 
-            let mut t = add_vnvn(&tan_prev, &tan_next);
-            normalize_vn(&mut t);
-            assert!(is_finite_vn(&t));
-            copy_vnvn(&mut tangents[k.tan[0]], &t);
-            copy_vnvn(&mut tangents[k.tan[1]], &t);
+            let mut t = add_vnvn(&tan_prev[..dims], &tan_next[..dims], dims);
+            normalize_vn(&mut t[..dims]);
+            assert!(is_finite_vn(&t[..dims]));
+            copy_vnvn(get_tangent_mut(&mut tangents, dims, k.tan[0]), &t[..dims]);
+            copy_vnvn(get_tangent_mut(&mut tangents, dims, k.tan[1]), &t[..dims]);
 
             k.handles[0] = len_prev /  3.0;
             k.handles[1] = len_next / -3.0;
 
-            copy_vnvn(&mut tan_prev, &tan_next);
+            tan_prev = tan_next;
             len_prev = len_next;
             i_curr = i_next;
         }
         // use prev as next since they're copied above
-        copy_vnvn(&mut tangents[knots[knots_len - 1].tan[0]], &tan_prev);
-        copy_vnvn(&mut tangents[knots[knots_len - 1].tan[1]], &tan_prev);
+        copy_vnvn(get_tangent_mut(&mut tangents, dims, knots[knots_len - 1].tan[0]), &tan_prev[..dims]);
+        copy_vnvn(get_tangent_mut(&mut tangents, dims, knots[knots_len - 1].tan[1]), &tan_prev[..dims]);
 
         knots[knots_len - 1].handles[0] = len_prev /  3.0;
         knots[knots_len - 1].handles[1] = len_prev / -3.0;
     }
 
+    // Duplicate the length cache for cyclic curves (matching C behavior).
     if is_cyclic {
-        // TODO, perhaps this can be done more elegantly?
         for i in 0..points_len {
             points_length_cache[i + points_len] = points_length_cache[i];
         }
     }
 
+    // Initialize pre-defined corners and their tangents.
+    // This overwrites the smooth tangents for corner points with separate
+    // tangents pointing to adjacent points.
+    if let Some(corner_indices) = corners {
+        let knots_end = knots_len - 1;
+        // For non-cyclic curves, skip first and last corners (handled as endpoints).
+        let corners_start = if is_cyclic { 0 } else { 1 };
+        let corners_len_clamped = if is_cyclic { corner_indices.len() } else { corner_indices.len().saturating_sub(1) };
+
+        for corner_i in corners_start..corners_len_clamped {
+            let i_curr = corner_indices[corner_i];
+            let i_prev = if is_cyclic && i_curr == 0 { knots_end } else { i_curr - 1 };
+            let i_next = if is_cyclic && i_curr == knots_end { 0 } else { i_curr + 1 };
+
+            let k = &mut knots[i_curr];
+            // Tangent towards previous point (for incoming handle).
+            let (tan_prev, len_prev) = normalized_vnvn_with_len(
+                get_point(&points, dims, i_prev),
+                get_point(&points, dims, i_curr),
+                dims);
+            copy_vnvn(get_tangent_mut(&mut tangents, dims, k.tan[0]), &tan_prev[..dims]);
+            k.handles[0] = len_prev / 3.0;
+
+            // Tangent towards next point (for outgoing handle).
+            let (tan_next, len_next) = normalized_vnvn_with_len(
+                get_point(&points, dims, i_curr),
+                get_point(&points, dims, i_next),
+                dims);
+            copy_vnvn(get_tangent_mut(&mut tangents, dims, k.tan[1]), &tan_next[..dims]);
+            k.handles[1] = len_next / -3.0;
+
+            k.is_corner = true;
+        }
+    }
+
     let mut knots_len_remaining = knots.len();
     let pd = PointData {
-        points: &points,
+        points: &*points,
+        dims: dims,
         points_len: points_len,
         points_length_cache: &points_length_cache,
         tangents: &tangents,
@@ -237,7 +322,35 @@ pub fn fit_poly_single(
 
     debug_assert!(knots_len_remaining >= 2);
 
-    let mut cubic_array: Vec<[[f64; DIMS]; 3]> = Vec::with_capacity(knots_len_remaining);
+    // Correct unused handle endpoints - not essential, but nice behavior.
+    // For non-cyclic curves, the first knot's incoming handle and the last knot's
+    // outgoing handle are unused. Set them to mirror their used counterparts.
+    if !is_cyclic {
+        // Find first active knot
+        let k_first_index: usize = knots.iter().position(|k| !k.is_remove).unwrap();
+        // Find last active knot
+        let mut k_last_index = k_first_index;
+        let mut k_idx = k_first_index;
+        for _ in 0..knots_len_remaining {
+            k_last_index = k_idx;
+            k_idx = knots[k_idx].next;
+        }
+        knots[k_first_index].handles[0] = -knots[k_first_index].handles[1];
+        knots[k_last_index].handles[1] = -knots[k_last_index].handles[0];
+    }
+
+    // Output: flat array of cubic bezier segments
+    // Each segment has 3 points (handle_in, point, handle_out), each with `dims` components
+    // Total size: knots_len_remaining * 3 * dims
+    let mut cubic_array: Vec<f64> = Vec::with_capacity(knots_len_remaining * 3 * dims);
+    let mut orig_indices: Vec<usize> = Vec::with_capacity(knots_len_remaining);
+
+    /// Get a tangent slice from a flat tangents array.
+    #[inline]
+    fn get_tangent(tangents: &[f64], dims: usize, tan_index: usize) -> &[f64] {
+        let start = tan_index * dims;
+        &tangents[start..start + dims]
+    }
 
     {
         let k_first_index: usize = {
@@ -255,78 +368,24 @@ pub fn fit_poly_single(
         let mut k_index = k_first_index;
         for _ in 0..knots_len_remaining {
             let k = &knots[k_index];
-            let p = &points[k.index];
+            let p = get_point(&points, dims, k.index);
 
-            // assert!(k.handles[0].is_finite());
-            // assert!(k.handles[1].is_finite());
+            // handle_in = p + tangent[0] * handles[0]
+            let handle_in = madd_vnvn_fl(p, get_tangent(&tangents, dims, k.tan[0]), k.handles[0], dims);
+            cubic_array.extend_from_slice(&handle_in[..dims]);
 
-            cubic_array.push([
-                madd_vnvn_fl(p, &tangents[k.tan[0]], k.handles[0]),
-                *p,
-                madd_vnvn_fl(p, &tangents[k.tan[1]], k.handles[1]),
-            ]);
+            // point
+            cubic_array.extend_from_slice(p);
+
+            // handle_out = p + tangent[1] * handles[1]
+            let handle_out = madd_vnvn_fl(p, get_tangent(&tangents, dims, k.tan[1]), k.handles[1], dims);
+            cubic_array.extend_from_slice(&handle_out[..dims]);
+
+            orig_indices.push(k.index);
 
             k_index = k.next;
         }
     }
 
-    return cubic_array;
-}
-
-
-/// Fit cubic bezier curves to a list of polygons.
-///
-/// Processes multiple polygons in parallel when there are more than one.
-/// Each polygon is processed independently using `fit_poly_single`.
-///
-/// The input is a list of `(is_cyclic, points)` tuples.
-/// Returns a list of `(is_cyclic, bezier_segments)` tuples.
-pub fn fit_poly_list(
-    poly_list_src: LinkedList<(bool, Vec<[f64; DIMS]>)>,
-    error_threshold: f64,
-    corner_angle: f64,
-    use_optimize_exhaustive: bool,
-) -> LinkedList<(bool, Vec<[[f64; DIMS]; 3]>)> {
-    let mut curve_list_dst: LinkedList<(bool, Vec<[[f64; DIMS]; 3]>)> = LinkedList::new();
-
-    // Single threaded (we may want to allow users to force this).
-    if poly_list_src.len() <= 1 {
-        for (is_cyclic, poly_src) in poly_list_src {
-            let poly_dst = fit_poly_single(
-                &poly_src, is_cyclic, error_threshold,
-                corner_angle, use_optimize_exhaustive);
-            println!("{} -> {}", poly_src.len(), poly_dst.len());
-            curve_list_dst.push_back((is_cyclic, poly_dst));
-        }
-    } else {
-        use std::thread;
-
-        let mut join_handles = Vec::with_capacity(poly_list_src.len());
-        let mut poly_vec_src = Vec::with_capacity(poly_list_src.len());
-
-        for poly_src in poly_list_src {
-            poly_vec_src.push(poly_src);
-        }
-
-        // sort length for more even threading
-        // and so larger at the end so they are popped off and handled first,
-        // smaller ones can be handled when other processors are free.
-        poly_vec_src.sort_by(|a, b| a.1.len().cmp(&b.1.len()));
-
-        while let Some((is_cyclic, poly_src_clone)) = poly_vec_src.pop() {
-            join_handles.push(thread::spawn(move || {
-                let poly_dst = fit_poly_single(
-                    &poly_src_clone, is_cyclic, error_threshold,
-                    corner_angle, use_optimize_exhaustive);
-                println!("{} -> {}", poly_src_clone.len(), poly_dst.len());
-                (is_cyclic, poly_dst)
-            }));
-        }
-
-        for child in join_handles {
-            curve_list_dst.push_back(child.join().unwrap());
-        }
-    }
-
-    return curve_list_dst;
+    (cubic_array, orig_indices)
 }

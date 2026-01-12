@@ -10,9 +10,9 @@ use std::collections::LinkedList;
 
 use ::intern::math_vector::{
     sq,
-    mid_vnvn,
-    len_squared_vnvn,
-    interp_vnvn,
+    mid_vnvn_fixed as mid_vnvn,
+    len_squared_vnvn_fixed as len_squared_vnvn,
+    interp_vnvn_fixed as interp_vnvn,
 };
 
 // Add cyclic option (cases where all polys state is known)
